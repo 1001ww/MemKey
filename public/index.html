@@ -69,7 +69,7 @@ input[type=text],input[type=password],input[type=url],input:not([type]),select,t
   color:var(--text); border-radius:10px; padding:0 12px; font:inherit;
   transition:border-color .15s,box-shadow .15s;
 }
-textarea{ height:auto; padding:10px 12px; resize:vertical; min-height:76px }
+textarea{ height:auto; padding:10px 12px; resize:vertical; min-height:60px }
 input:focus,select:focus,textarea:focus{ outline:none; border-color:var(--blue); box-shadow:0 0 0 3px rgba(47,95,232,.13) }
 input::placeholder,textarea::placeholder{ color:var(--faint) }
 select{ cursor:pointer; width:auto; min-width:110px }
@@ -352,8 +352,8 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
 .m-title{ font-size:16.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
 .m-url{ font-size:12.5px; color:var(--muted); display:inline-flex; align-items:center; gap:5px; margin-top:2px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 .m-url:hover{ color:var(--blue) }
-.m-body{ padding:16px 20px; display:grid; gap:10px }
-.m-foot{ display:flex; gap:10px; align-items:center; padding:2px 20px 18px }
+.m-body{ padding:14px 20px 12px; display:grid; gap:11px }
+.m-foot{ display:flex; gap:10px; align-items:center; padding:2px 20px 16px }
 .dfield{
   display:flex; align-items:center; gap:12px; padding:11px 13px;
   background:var(--soft); border:1px solid var(--line); border-radius:11px;
@@ -477,7 +477,7 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
         <path d="M38 42v-5a10 10 0 0 1 20 0v5" stroke="#2F5FE8" stroke-width="6"/>
       </svg>
       <span class="bname">Mem<b>Key</b></span>
-      <span class="bver">v1.2.0</span>
+      <span class="bver">v1.2.1</span>
     </div>
     <nav id="sb-nav"></nav>
     <div class="sb-bottom">
@@ -1017,7 +1017,7 @@ function renderSet(container){
     </section>
     <section class="card row-in">
       <h3>${icon('lock',16)} 关于</h3>
-      <p class="about">MemKey v1.2.0 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 install-startup.bat 安装。</p>
+      <p class="about">MemKey v1.2.1 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 install-startup.bat 安装。</p>
     </section>
     <section class="card card-danger row-in">
       <h3>${icon('warn',16)} 危险操作</h3>
@@ -1076,16 +1076,19 @@ function openEdit(id){
   S.editDirty = false;
   const v = k => esc(e ? e[k] || '' : '');
   openModal(`
-  <form class="modal" data-form="edit" role="dialog" aria-modal="true" aria-label="${e?'编辑账号':'新增账号'}" autocomplete="off">
+  <form class="modal" data-form="edit" role="dialog" aria-modal="true" aria-label="${e?'编辑账号':'新增账号'}" autocomplete="off" style="max-width:640px">
     <div class="m-head">
       <div class="m-title">${e ? '编辑账号' : '新增账号'}</div>
       <div class="grow"></div>
+      <button type="button" class="icon-btn star-btn ${e && e.favorite ? 'on' : ''}" data-action="edit-fav" title="${e && e.favorite ? '取消收藏' : '收藏'}" aria-label="收藏">${icon('star',18)}</button>
       <button type="button" class="icon-btn" data-action="close-modal" aria-label="关闭">${icon('x',18)}</button>
     </div>
     <div class="m-body">
       <div class="frow"><label class="flabel">名称 <i>*</i></label><input type="text" name="title" required maxlength="80" value="${v('title')}" placeholder="如：GitHub"></div>
-      <div class="frow"><label class="flabel">用户名</label><input type="text" name="username" maxlength="120" value="${v('username')}" placeholder="邮箱或账号"></div>
-      <div class="frow"><label class="flabel">网址</label><input type="text" name="url" maxlength="300" value="${v('url')}" placeholder="example.com"></div>
+      <div class="fgrid">
+        <div class="frow"><label class="flabel">用户名</label><input type="text" name="username" maxlength="120" value="${v('username')}" placeholder="邮箱或账号"></div>
+        <div class="frow"><label class="flabel">网址</label><input type="text" name="url" maxlength="300" value="${v('url')}" placeholder="example.com"></div>
+      </div>
       <div class="frow">
         <label class="flabel">密码</label>
         <div class="pw-wrap">
@@ -1096,20 +1099,18 @@ function openEdit(id){
         <div class="meter" id="ep-meter"><div class="segs"><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div><span class="mlabel">—</span></div>
         ${genHTML(true)}
       </div>
-      <div class="frow"><label class="flabel">备注</label><textarea name="notes" maxlength="2000" placeholder="安全问题、恢复代码、备注…">${v('notes')}</textarea></div>
-      <div class="frow"><label class="flabel">标签</label>
-        <div class="tag-editor" id="tag-editor" data-action="tag-focus">
-          ${(e && e.tags ? e.tags : []).map(t => tagChip(t)).join('')}
-          <input type="text" id="tag-input" list="tag-list" maxlength="20" placeholder="输入标签后回车添加，如：项目A" autocomplete="off">
+      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+        <div class="frow" style="flex:1.5;min-width:230px"><label class="flabel">标签</label>
+          <div class="tag-editor" id="tag-editor" data-action="tag-focus">
+            ${(e && e.tags ? e.tags : []).map(t => tagChip(t)).join('')}
+            <input type="text" id="tag-input" list="tag-list" maxlength="20" placeholder="回车添加，如：项目A" autocomplete="off">
+          </div>
+          <datalist id="tag-list">${allTags().map(t => `<option value="${esc(t)}">`).join('')}</datalist>
         </div>
-        <datalist id="tag-list">${allTags().map(t => `<option value="${esc(t)}">`).join('')}</datalist>
-      </div>
-      <div class="fgrid">
-        <div class="frow"><label class="flabel">分类</label>
+        <div class="frow" style="flex:1;min-width:150px"><label class="flabel">分类</label>
           ${ddHTML('category', getCats().map(c => ({ v:c.id, label:c.label, icon:c.icon })), e ? (e.category || 'other') : (getCats().some(c => c.id === S.cat) ? S.cat : 'other'))}</div>
-        <div class="frow"><label class="flabel">收藏</label>
-          <label class="switch" style="margin-top:8px"><input type="checkbox" name="favorite" ${e && e.favorite ? 'checked' : ''}><span class="knob"></span></label></div>
       </div>
+      <div class="frow"><label class="flabel">备注</label><textarea name="notes" maxlength="2000" placeholder="安全问题、恢复代码、备注…">${v('notes')}</textarea></div>
     </div>
     <div class="m-foot">
       <div class="grow"></div>
@@ -1337,6 +1338,12 @@ document.addEventListener('click', async e => {
       S.view = 'list'; S.tag = t.dataset.tag; S.cat = 'all';
       $('#scr-app').classList.remove('sb-open');
       renderApp(); break;
+    case 'edit-fav': {
+      const on = t.classList.toggle('on');
+      t.title = on ? '取消收藏' : '收藏';
+      S.editDirty = true;
+      break;
+    }
     case 'tag-rm': {
       t.closest('.tag-chip')?.remove();
       break;
@@ -1511,7 +1518,7 @@ document.addEventListener('submit', async e => {
       url: String(fd.get('url') || '').trim(),
       notes: String(fd.get('notes') || '').trim(),
       category: fd.get('category') || 'other',
-      favorite: !!fd.get('favorite'),
+      favorite: form.querySelector('[data-action=edit-fav]')?.classList.contains('on') || false,
       tags: [...form.querySelectorAll('#tag-editor .tag-chip')].map(el => el.dataset.tag),
       createdAt: old ? old.createdAt : now,
       updatedAt: now,
