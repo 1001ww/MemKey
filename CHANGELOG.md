@@ -11,6 +11,9 @@
 ### 修复
 
 - 自定义分类未包含在加密持久化载荷中，刷新/重启后分类增删改丢失（现随密码库一同加密保存）
+- SECURITY.md 准确描述服务 API：补全 `DELETE /api/vault` 与 `GET /api/meta`，说明 PUT 仅校验 JSON 外壳结构而非原样字节读写
+- 漏洞反馈渠道由 GitHub Issues（公开）更正为 Security Advisories 私密通道
+- 界面版本号（侧栏 / 设置页）与 CHANGELOG 同步为 v1.1.2
 
 ## [1.1.1] - 2026-09-02
 
