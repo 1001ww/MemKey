@@ -1,0 +1,10 @@
+# 密码库数据（个人加密数据，严禁提交）
+data/
+
+# 系统文件
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# 日志
+*.log

@@ -1,0 +1,1581 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MemKey · 本地密码保险库</title>
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="%232F5FE8"/><rect x="20" y="28" width="24" height="20" rx="5" fill="none" stroke="white" stroke-width="4"/><path d="M25 28v-6a7 7 0 0 1 14 0v6" fill="none" stroke="white" stroke-width="4"/></svg>'>
+<style>
+/* ============ 设计令牌（浅色 · 蓝白经典） ============ */
+:root{
+  --bg:#F3F5FA; --card:#FFFFFF; --soft:#EDF1F8; --soft2:#E5EBF4;
+  --line:#E2E8F2; --line-strong:#C9D4E3;
+  --text:#1B2540; --muted:#5D6B85; --faint:#98A5BB;
+  --blue:#2F5FE8; --blue-hi:#1F49C4; --blue-soft:#E9F0FD; --blue-line:#B8CCF5;
+  --red:#DC2626; --red-soft:#FCEBEB; --red-line:#F2C4C4;
+  --green:#1A9E4B; --green-soft:#E6F6EC; --green-line:#B8E4C8;
+  --amber:#C77414; --amber-soft:#FCF2E3; --amber-line:#F0D9B4;
+  --font:-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  --mono:"Cascadia Code",ui-monospace,"SF Mono",Consolas,"Courier New",monospace;
+  --rad:12px;
+  --shadow-card:0 1px 2px rgba(27,37,64,.04), 0 8px 24px -14px rgba(27,37,64,.14);
+  --shadow-pop:0 4px 12px rgba(27,37,64,.08), 0 24px 56px -16px rgba(27,37,64,.24);
+}
+*{ margin:0; padding:0; box-sizing:border-box }
+[hidden]{ display:none !important }
+html,body{ height:100% }
+body{ font-family:var(--font); background:var(--bg); color:var(--text); font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased; overflow:hidden }
+::selection{ background:rgba(47,95,232,.18) }
+::-webkit-scrollbar{ width:10px; height:10px }
+::-webkit-scrollbar-thumb{ background:#C9D4E3; border-radius:6px; border:3px solid var(--bg) }
+::-webkit-scrollbar-thumb:hover{ background:#B0BFd4 }
+::-webkit-scrollbar-track{ background:transparent }
+button{ font-family:inherit }
+a{ color:var(--blue); text-decoration:none }
+a:hover{ text-decoration:underline }
+.mono{ font-family:var(--mono) }
+.grow{ flex:1 }
+
+/* ============ 通用组件 ============ */
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:7px;
+  height:38px; padding:0 16px; border-radius:10px; border:1px solid var(--line-strong);
+  background:var(--card); color:var(--text); font-size:14px; font-weight:500;
+  cursor:pointer; transition:background .15s,border-color .15s,box-shadow .15s,transform .06s;
+  white-space:nowrap;
+}
+.btn:hover{ background:#F7F9FC; border-color:#B4C2D8; box-shadow:0 1px 3px rgba(27,37,64,.08) }
+.btn:active{ transform:translateY(1px) }
+.btn-primary{ background:var(--blue); border-color:var(--blue); color:#fff; font-weight:600 }
+.btn-primary:hover{ background:var(--blue-hi); border-color:var(--blue-hi); box-shadow:0 4px 14px -4px rgba(47,95,232,.5) }
+.btn-danger{ background:var(--card); border-color:var(--red-line); color:var(--red) }
+.btn-danger:hover{ background:var(--red-soft); border-color:var(--red) }
+.btn-warn{ background:var(--card); border-color:var(--amber-line); color:var(--amber) }
+.btn-warn:hover{ background:var(--amber-soft); border-color:var(--amber) }
+.btn-block{ width:100% }
+.btn-sm{ height:30px; padding:0 12px; font-size:13px; border-radius:8px }
+.icon-btn{
+  display:inline-flex; align-items:center; justify-content:center; flex:none;
+  width:32px; height:32px; border-radius:8px; border:1px solid transparent;
+  background:transparent; color:var(--muted); cursor:pointer;
+  transition:color .15s,background .15s,border-color .15s;
+}
+.icon-btn:hover{ color:var(--text); background:var(--soft); border-color:var(--line-strong) }
+.icon-btn svg{ display:block }
+:is(button,a,[tabindex]):focus-visible{ outline:2px solid var(--blue); outline-offset:2px; border-radius:8px }
+
+input[type=text],input[type=password],input[type=url],input:not([type]),select,textarea{
+  width:100%; height:40px; background:var(--card); border:1px solid var(--line-strong);
+  color:var(--text); border-radius:10px; padding:0 12px; font:inherit;
+  transition:border-color .15s,box-shadow .15s;
+}
+textarea{ height:auto; padding:10px 12px; resize:vertical; min-height:76px }
+input:focus,select:focus,textarea:focus{ outline:none; border-color:var(--blue); box-shadow:0 0 0 3px rgba(47,95,232,.13) }
+input::placeholder,textarea::placeholder{ color:var(--faint) }
+select{ cursor:pointer; width:auto; min-width:110px }
+select option{ background:var(--card); color:var(--text) }
+
+/* 自定义下拉 */
+.dd{ position:relative }
+.dd-btn{
+  display:flex; align-items:center; width:100%; height:40px; padding:0 12px;
+  background:var(--card); border:1px solid var(--line-strong); border-radius:10px;
+  color:var(--text); font:inherit; font-size:14px; cursor:pointer; text-align:left;
+  transition:border-color .15s,box-shadow .15s;
+}
+.dd-btn:hover{ border-color:#B4C2D8 }
+.dd.open .dd-btn{ border-color:var(--blue); box-shadow:0 0 0 3px rgba(47,95,232,.13) }
+.dd-cur{ display:flex; align-items:center; gap:8px; flex:1; min-width:0 }
+.dd-cur .dd-lb{ display:flex; align-items:center; gap:8px; min-width:0 }
+.dd-arrow{ color:var(--faint); flex:none; transition:transform .15s }
+.dd.open .dd-arrow{ transform:rotate(180deg) }
+.dd-menu{
+  position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:60;
+  background:var(--card); border:1px solid var(--line); border-radius:10px;
+  box-shadow:var(--shadow-pop); padding:4px; max-height:240px; overflow-y:auto;
+  display:none; animation:fadeUp .14s ease-out;
+}
+.dd.open .dd-menu{ display:block }
+.dd-opt{ display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; color:var(--muted); font-size:13.5px }
+.dd-opt:hover{ background:var(--soft); color:var(--text) }
+.dd-opt.sel{ background:var(--blue-soft); color:var(--blue) }
+.dd-opt .dd-lb{ display:flex; align-items:center; gap:8px; min-width:0; flex:1 }
+.dd-opt .dd-check{ display:none; flex:none }
+.dd-opt.sel .dd-check{ display:inline-flex }
+
+label.flabel{ display:block; font-size:12.5px; color:var(--muted); margin-bottom:6px; font-weight:500 }
+label.flabel i{ color:var(--red); font-style:normal }
+
+/* 开关 */
+.switch{ position:relative; display:inline-block; width:40px; height:22px; flex:none }
+.switch input{ position:absolute; inset:0; opacity:0; margin:0; cursor:pointer; z-index:1 }
+.switch .knob{ position:absolute; inset:0; background:var(--soft2); border:1px solid var(--line-strong); border-radius:20px; transition:.16s }
+.switch .knob::after{ content:''; position:absolute; width:16px; height:16px; border-radius:50%; background:#fff; border:1px solid var(--line-strong); top:2px; left:2px; transition:.16s; box-shadow:0 1px 2px rgba(27,37,64,.15) }
+.switch input:checked + .knob{ background:var(--blue); border-color:var(--blue) }
+.switch input:checked + .knob::after{ left:19px; background:#fff; border-color:var(--blue) }
+
+/* 复选 */
+.check{ display:flex; gap:9px; align-items:center; cursor:pointer; font-size:13px; color:var(--muted) }
+.check input{ accent-color:var(--blue); width:15px; height:15px; flex:none; cursor:pointer }
+
+/* 强度条 */
+.meter{ display:flex; gap:8px; align-items:center; margin-top:8px }
+.meter .segs{ display:flex; gap:4px; flex:1 }
+.meter .seg{ height:4px; flex:1; border-radius:2px; background:var(--soft2); transition:background .2s }
+.meter .mlabel{ font-size:12px; color:var(--muted); min-width:56px; text-align:right; flex:none }
+
+/* 滑杆 */
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:4px; border-radius:2px;
+  background:var(--soft2); cursor:pointer; border:none; padding:0; box-shadow:none;
+}
+input[type=range]:focus{ outline:none }
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:16px; height:16px; border-radius:50%;
+  background:var(--blue); border:2px solid #fff; box-shadow:0 1px 4px rgba(27,37,64,.3); cursor:pointer;
+}
+input[type=range]::-moz-range-thumb{ width:14px; height:14px; border-radius:50%; background:var(--blue); border:2px solid #fff; box-shadow:0 1px 4px rgba(27,37,64,.3); cursor:pointer }
+
+/* 微章 / 芯片 */
+.badge{ min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--red); color:#fff; font-size:11px; font-weight:600; display:inline-grid; place-items:center; margin-left:auto }
+.chip{ font-size:12px; padding:3px 10px; border-radius:100px; background:var(--soft); color:var(--muted); border:1px solid var(--line); white-space:nowrap }
+kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); border-bottom-width:2px; border-radius:5px; padding:1px 6px; background:var(--card); flex:none; transition:opacity .15s }
+
+.spinner{ width:14px; height:14px; border-radius:50%; border:2px solid rgba(255,255,255,.35); border-top-color:#fff; animation:spin .7s linear infinite; display:inline-block }
+@keyframes spin{ to{ transform:rotate(360deg) } }
+
+@keyframes fadeUp{ from{ opacity:0; transform:translateY(7px) } to{ opacity:1; transform:none } }
+.row-in{ animation:fadeUp .3s ease-out backwards }
+
+/* ============ 认证屏 ============ */
+.auth{
+  position:fixed; inset:0; z-index:10; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; padding:24px;
+  background:radial-gradient(1100px 700px at 50% -10%, #E4EDFC 0%, var(--bg) 55%);
+}
+.auth-card{ width:min(400px,100%); display:flex; flex-direction:column; align-items:center; animation:fadeUp .4s ease-out backwards }
+.emblem{ width:92px; height:92px; filter:drop-shadow(0 8px 24px rgba(47,95,232,.25)); margin-bottom:22px }
+.emblem .ring-dash{ transform-origin:50% 50%; animation:spin 52s linear infinite }
+.wordmark{ font-size:32px; font-weight:700; letter-spacing:.01em; line-height:1.2; color:var(--text) }
+.wordmark b{ color:var(--blue); font-weight:700 }
+.tagline{ font-size:13px; color:var(--muted); margin:6px 0 30px; letter-spacing:.05em }
+.auth-form{ width:100%; display:flex; flex-direction:column; gap:4px }
+.err{ color:var(--red); font-size:13px; margin:8px 2px; display:flex; gap:6px; align-items:center }
+.auth .btn-block{ margin-top:12px; height:42px }
+.auth-foot{ position:absolute; bottom:22px; font-size:11.5px; color:var(--faint); letter-spacing:.06em }
+.shake{ animation:shake .4s }
+@keyframes shake{ 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-7px)} 40%,80%{transform:translateX(7px)} }
+.checklist{ list-style:none; margin:10px 0 4px; display:grid; gap:5px }
+.checklist li{ display:flex; gap:8px; align-items:center; font-size:12.5px; color:var(--faint); transition:color .2s }
+.checklist li svg{ flex:none }
+.checklist li.ok{ color:var(--green) }
+.warnbox{
+  display:flex; gap:10px; align-items:flex-start; margin:14px 0 4px; padding:11px 13px;
+  background:var(--amber-soft); border:1px solid var(--amber-line);
+  border-radius:10px; font-size:12.5px; color:var(--amber); line-height:1.55;
+}
+.warnbox svg{ flex:none; margin-top:1px }
+.ack{ margin:14px 0 2px }
+.lock-note{ font-size:12.5px; color:var(--muted); margin-top:14px; text-align:center }
+
+/* ============ 应用布局 ============ */
+#scr-app{ position:fixed; inset:0; z-index:10; display:flex }
+#sb-backdrop{ display:none }
+
+#sidebar{
+  width:250px; flex:none; background:var(--card); border-right:1px solid var(--line);
+  display:flex; flex-direction:column; padding:14px 12px 12px; gap:2px; z-index:41;
+  overflow-y:auto;
+}
+.brand{ display:flex; align-items:center; gap:10px; padding:8px 10px 18px }
+.brand .bmark{ width:30px; height:30px; flex:none }
+.brand .bname{ font-size:16.5px; font-weight:700 }
+.brand .bname b{ color:var(--blue); font-weight:700 }
+.brand .bver{ font-size:10.5px; color:var(--faint); margin-left:auto; font-family:var(--mono) }
+
+.nav-item{
+  display:flex; align-items:center; gap:10px; height:37px; padding:0 10px;
+  border-radius:9px; color:var(--muted); cursor:pointer; font-size:13.5px;
+  border:1px solid transparent; user-select:none; transition:color .13s,background .13s;
+}
+.nav-item:hover{ color:var(--text); background:var(--soft) }
+.nav-item.active{ color:var(--blue); background:var(--blue-soft); border-color:var(--blue-line) }
+.nav-item .cnt{ margin-left:auto; font-size:12px; color:var(--faint); font-variant-numeric:tabular-nums }
+.nav-item.active .cnt{ color:var(--blue) }
+.nav-sec{ margin:15px 10px 6px; font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600 }
+.sb-bottom{ margin-top:auto; border-top:1px solid var(--line); padding-top:10px; display:grid; gap:2px }
+.nav-lock:hover{ color:var(--red); background:var(--red-soft) }
+
+#main{ flex:1; min-width:0; display:flex; flex-direction:column; background:var(--bg) }
+#topbar{
+  display:flex; align-items:center; gap:14px; padding:15px 26px;
+  border-bottom:1px solid var(--line); background:rgba(243,245,250,.9); backdrop-filter:blur(8px);
+  position:relative; z-index:5; flex-wrap:wrap;
+}
+#btn-menu{ display:none }
+#page-title{ font-size:16.5px; font-weight:600; white-space:nowrap }
+.search-box{
+  display:flex; align-items:center; gap:8px; width:min(340px,100%); height:38px;
+  padding:0 6px 0 12px; background:var(--card); border:1px solid var(--line-strong); border-radius:10px;
+  color:var(--faint); transition:border-color .15s,box-shadow .15s; margin-left:auto;
+}
+.search-box:focus-within{ border-color:var(--blue) }
+.search-box:focus-within kbd{ opacity:0 }
+.search-box input{ flex:1; min-width:0; background:none; border:0; height:auto; padding:0; color:var(--text); box-shadow:none !important; outline:none !important; border-radius:0 }
+
+#view{ flex:1; overflow-y:auto; padding:22px 26px 70px }
+.view-inner{ max-width:920px; margin:0 auto }
+
+/* 账号列表 */
+.entry{
+  display:flex; align-items:center; gap:13px; padding:10px 14px; margin-bottom:8px;
+  background:var(--card); border:1px solid var(--line); border-radius:var(--rad);
+  cursor:pointer; box-shadow:var(--shadow-card);
+  transition:box-shadow .14s,border-color .14s,transform .1s;
+}
+.entry:hover{ border-color:var(--line-strong); transform:translateY(-1px); box-shadow:0 2px 4px rgba(27,37,64,.05), 0 14px 32px -16px rgba(27,37,64,.2) }
+.avatar{
+  width:38px; height:38px; border-radius:10px; display:grid; place-items:center;
+  font-weight:600; font-size:15.5px; flex:none;
+}
+.av-lg{ width:46px; height:46px; border-radius:12px; font-size:19px }
+.row-main{ flex:1; min-width:0 }
+.row-title{ font-weight:500; font-size:14.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+.row-sub{ font-size:12.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px }
+.row-actions{ display:flex; gap:3px; align-items:center }
+.row-actions > *{ opacity:0; transition:opacity .15s }
+.entry:hover .row-actions > *, .entry:focus-within .row-actions > *{ opacity:1 }
+.row-actions > .star-btn.on{ opacity:1 }
+.star-btn.on{ color:var(--amber) }
+.star-btn.on svg{ fill:currentColor }
+.strength-dot{ width:8px; height:8px; border-radius:50%; flex:none; box-shadow:0 0 0 3px rgba(27,37,64,.04) }
+
+.empty{ text-align:center; padding:70px 20px; color:var(--muted) }
+.empty h3{ font-size:16px; color:var(--text); margin:18px 0 6px; font-weight:600 }
+.empty p{ font-size:13px; color:var(--muted); margin-bottom:22px }
+
+/* 卡片（设置 / 安全） */
+.cards{ display:grid; gap:14px }
+.card{ background:var(--card); border:1px solid var(--line); border-radius:var(--rad); padding:17px 20px; box-shadow:var(--shadow-card) }
+.card h3{ display:flex; align-items:center; gap:8px; font-size:13.5px; margin-bottom:4px; color:var(--text) }
+.card h3 svg{ color:var(--blue) }
+.card.card-danger h3 svg{ color:var(--red) }
+.card p.about{ font-size:13px; color:var(--muted); line-height:1.7; margin-top:8px }
+.card p.about .path{ font-family:var(--mono); font-size:12px; background:var(--soft); padding:1px 6px; border-radius:5px; color:var(--text) }
+.set-row{ display:flex; align-items:center; gap:16px; padding:13px 0; border-top:1px solid var(--line); margin-top:8px }
+.set-row:first-of-type{ border-top:0; margin-top:12px }
+.set-info{ flex:1; min-width:0 }
+.set-info b{ font-size:13.5px; font-weight:500; display:block }
+.set-info .sub{ font-size:12px; color:var(--muted); display:block; margin-top:1px }
+.cat-row .cat-ic{ width:30px; height:30px; border-radius:8px; background:var(--soft); border:1px solid var(--line); display:grid; place-items:center; color:var(--blue); flex:none }
+.cat-row .cat-cnt{ font-size:12px; color:var(--faint); margin-left:auto; flex:none }
+.cat-name-input{ height:32px; font-size:13.5px }
+.cat-add-row{ display:flex; gap:8px; align-items:center; padding:14px 0 2px; border-top:1px solid var(--line); margin-top:14px; flex-wrap:wrap }
+.cat-add-row input{ flex:1; min-width:140px; height:36px }
+.cat-icons{ display:flex; gap:4px; flex-wrap:wrap; padding:10px 0 2px }
+.icon-pick{
+  width:32px; height:32px; border-radius:8px; border:1px solid var(--line);
+  background:var(--card); color:var(--muted); cursor:pointer;
+  display:grid; place-items:center; transition:all .13s;
+}
+.icon-pick:hover{ border-color:var(--line-strong); color:var(--text) }
+.icon-pick.sel{ background:var(--blue-soft); border-color:var(--blue-line); color:var(--blue) }
+
+.stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:18px }
+.stat{ background:var(--card); border:1px solid var(--line); border-radius:var(--rad); padding:16px 18px; box-shadow:var(--shadow-card) }
+.stat .num{ font-size:30px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.15 }
+.stat .sl{ font-size:12.5px; color:var(--muted); margin-top:3px }
+.sec-h{ font-size:13.5px; font-weight:600; margin:20px 0 10px; display:flex; align-items:center; gap:7px }
+.sec-h svg{ color:var(--red) }
+.sec-h.good svg{ color:var(--green) }
+.sec-list .entry{ margin-bottom:6px }
+.reuse-group{ background:var(--card); border:1px solid var(--line); border-radius:var(--rad); padding:12px 14px; margin-bottom:10px; box-shadow:var(--shadow-card) }
+.reuse-group .rg-t{ font-size:12.5px; color:var(--amber); margin-bottom:8px; display:flex; gap:7px; align-items:center }
+
+/* 生成器 */
+.gen-wrap{ max-width:640px }
+.gen-card{ background:var(--card); border:1px solid var(--line); border-radius:var(--rad); padding:20px; box-shadow:var(--shadow-card) }
+.gen-display{
+  display:flex; align-items:center; gap:8px; background:var(--soft); border:1px solid var(--line-strong);
+  border-radius:12px; padding:15px 16px; margin-bottom:16px;
+}
+.gen-out{ flex:1; font-family:var(--mono); font-size:17px; color:var(--text); word-break:break-all; line-height:1.45; min-height:25px }
+.gen-opts{ display:grid; gap:14px }
+.gen-len{ display:flex; align-items:center; gap:14px; font-size:13px; color:var(--muted) }
+.gen-len b{ font-family:var(--mono); color:var(--blue); font-size:15px; min-width:26px; text-align:center }
+.gen-len input[type=range]{ flex:1 }
+.gen-toggles{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px 22px }
+.gtoggle{ display:flex; align-items:center; gap:10px; font-size:13.5px; color:var(--text); cursor:pointer }
+.gen-strength{ margin-top:2px }
+.gen-strength .bits{ font-size:12px; color:var(--faint); font-family:var(--mono); flex:none }
+.gen-use-row{ margin-top:16px; display:flex; justify-content:flex-end }
+.gen-hint{ font-size:12px; color:var(--faint); margin-top:14px; line-height:1.7 }
+.gen-embed{ background:var(--soft); border:1px solid var(--line-strong); border-radius:12px; padding:14px 16px; margin-top:10px }
+.gen-embed .gen-display{ margin-bottom:14px; padding:11px 13px; background:var(--card) }
+.gen-embed .gen-out{ font-size:15px }
+.pw-wrap{ display:flex; gap:6px; align-items:center }
+.pw-wrap input{ flex:1; min-width:0 }
+.pw-wrap .icon-btn{ width:36px; height:36px }
+
+/* ============ 弹窗 ============ */
+.modal-backdrop{
+  position:fixed; inset:0; background:rgba(27,37,64,.4); display:grid; place-items:center;
+  padding:20px; z-index:100; opacity:0; transition:opacity .18s ease-out;
+}
+.modal-backdrop.show{ opacity:1 }
+.modal{
+  width:100%; max-width:560px; max-height:calc(100vh - 44px); overflow-y:auto;
+  background:var(--card); border:1px solid var(--line); border-radius:16px;
+  box-shadow:var(--shadow-pop); transform:translateY(10px) scale(.985); transition:transform .18s ease-out;
+}
+.modal-backdrop.show .modal{ transform:none }
+.m-head{ display:flex; align-items:center; gap:13px; padding:18px 20px 0 }
+.m-head-main{ flex:1; min-width:0 }
+.m-title{ font-size:16.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+.m-url{ font-size:12.5px; color:var(--muted); display:inline-flex; align-items:center; gap:5px; margin-top:2px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.m-url:hover{ color:var(--blue) }
+.m-body{ padding:16px 20px; display:grid; gap:10px }
+.m-foot{ display:flex; gap:10px; align-items:center; padding:2px 20px 18px }
+.dfield{
+  display:flex; align-items:center; gap:12px; padding:11px 13px;
+  background:var(--soft); border:1px solid var(--line); border-radius:11px;
+}
+.dfield .dl{ font-size:12px; color:var(--muted); width:48px; flex:none }
+.dfield .dv{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.dfield .dv.notes{ white-space:pre-wrap; word-break:break-word; max-height:130px; overflow-y:auto; line-height:1.6 }
+.dfield .dv.mono{ font-size:14px; letter-spacing:.03em }
+.m-meta{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding-top:4px }
+.m-time{ font-size:12px; color:var(--faint); display:inline-flex; gap:5px; align-items:center }
+.strength-tag{ font-size:12px; margin-left:auto }
+.fgrid{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
+.frow{ min-width:0 }
+@media (max-width:560px){ .fgrid{ grid-template-columns:1fr } }
+
+/* ============ Toast ============ */
+#toast-root{
+  position:fixed; bottom:26px; left:50%; transform:translateX(-50%);
+  display:flex; flex-direction:column; gap:8px; z-index:300; align-items:center; pointer-events:none;
+}
+.toast{
+  display:flex; gap:9px; align-items:center; background:var(--card); border:1px solid var(--line);
+  color:var(--text); font-size:13px; padding:10px 17px; border-radius:100px;
+  box-shadow:var(--shadow-pop); opacity:0; transform:translateY(10px); transition:.22s ease-out;
+  max-width:min(480px,90vw);
+}
+.toast.in{ opacity:1; transform:none }
+.toast svg{ flex:none }
+.toast.ok svg{ color:var(--green) }
+.toast.warn svg{ color:var(--amber) }
+.toast.err svg{ color:var(--red) }
+
+/* ============ 响应式 ============ */
+@media (max-width:920px){
+  #sidebar{ position:fixed; left:0; top:0; bottom:0; transform:translateX(-102%); transition:transform .2s ease-out; box-shadow:var(--shadow-pop) }
+  #scr-app.sb-open #sidebar{ transform:none }
+  #sb-backdrop{ display:block; position:fixed; inset:0; background:rgba(27,37,64,.4); z-index:40; opacity:0; transition:opacity .2s; pointer-events:none }
+  #scr-app.sb-open #sb-backdrop{ opacity:1; pointer-events:auto }
+  #btn-menu{ display:inline-flex }
+  #topbar{ padding:12px 16px }
+  #view{ padding:16px 16px 60px }
+  .search-box{ order:5; width:100%; margin-left:0 }
+  .row-actions > *{ opacity:1 }
+  .stats{ grid-template-columns:1fr }
+  .gen-toggles{ grid-template-columns:1fr }
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{ animation:none !important; transition:none !important }
+}
+</style>
+</head>
+<body>
+
+<!-- 创建保险库 -->
+<div class="auth" id="scr-setup" hidden>
+  <div class="auth-card">
+    <svg class="emblem" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+      <circle class="ring-dash" cx="48" cy="48" r="45" stroke="#2F5FE8" stroke-width="1.4" stroke-dasharray="3 7" opacity=".35"/>
+      <circle cx="48" cy="48" r="35" stroke="#2F5FE8" stroke-width="1" opacity=".18"/>
+      <rect x="31" y="41" width="34" height="26" rx="6" stroke="#2F5FE8" stroke-width="2.6"/>
+      <path d="M38 41v-6a10 10 0 0 1 20 0v6" stroke="#2F5FE8" stroke-width="2.6"/>
+      <circle cx="48" cy="52" r="3.6" fill="#2F5FE8"/>
+      <path d="M48 55.5v6" stroke="#2F5FE8" stroke-width="2.6" stroke-linecap="round"/>
+    </svg>
+    <div class="wordmark">Mem<b>Key</b></div>
+    <div class="tagline">本地密码保险库 · 数据保存在本机文件</div>
+    <form class="auth-form" id="f-setup" data-form="setup" autocomplete="off" novalidate>
+      <div>
+        <label class="flabel" for="su-pw">主密码</label>
+        <input id="su-pw" type="password" data-strength="su-meter" autocomplete="new-password" placeholder="用于加密所有数据，请务必牢记">
+        <div class="meter" id="su-meter"><div class="segs"><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div><span class="mlabel">—</span></div>
+        <ul class="checklist" id="su-check"></ul>
+      </div>
+      <div style="margin-top:8px">
+        <label class="flabel" for="su-pw2">确认主密码</label>
+        <input id="su-pw2" type="password" autocomplete="new-password" placeholder="再输入一次">
+      </div>
+      <div class="warnbox">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span>主密码是唯一的解密钥匙，没有任何找回途径。建议使用 12 位以上的长密码短语。</span>
+      </div>
+      <label class="check ack"><input type="checkbox" id="su-ack"><span>我已了解：主密码遗忘后，保险库数据将永久无法恢复</span></label>
+      <button class="btn btn-primary btn-block" id="su-btn" type="submit">创建保险库</button>
+    </form>
+  </div>
+  <p class="auth-foot">AES-256-GCM 加密 · 零知识架构 · 主密码永不上传</p>
+</div>
+
+<!-- 解锁 -->
+<div class="auth" id="scr-lock" hidden>
+  <div class="auth-card">
+    <svg class="emblem" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+      <circle class="ring-dash" cx="48" cy="48" r="45" stroke="#2F5FE8" stroke-width="1.4" stroke-dasharray="3 7" opacity=".35"/>
+      <circle cx="48" cy="48" r="35" stroke="#2F5FE8" stroke-width="1" opacity=".18"/>
+      <rect x="31" y="41" width="34" height="26" rx="6" stroke="#2F5FE8" stroke-width="2.6"/>
+      <path d="M38 41v-6a10 10 0 0 1 20 0v6" stroke="#2F5FE8" stroke-width="2.6"/>
+      <circle cx="48" cy="52" r="3.6" fill="#2F5FE8"/>
+      <path d="M48 55.5v6" stroke="#2F5FE8" stroke-width="2.6" stroke-linecap="round"/>
+    </svg>
+    <div class="wordmark">Mem<b>Key</b></div>
+    <div class="tagline">输入主密码解锁保险库</div>
+    <form class="auth-form" id="f-lock" data-form="lock" autocomplete="off">
+      <input id="lk-pw" type="password" autocomplete="current-password" placeholder="主密码" aria-label="主密码" style="height:44px">
+      <div class="err" id="lk-err" hidden></div>
+      <button class="btn btn-primary btn-block" id="lk-btn" type="submit" style="height:42px">解锁</button>
+      <p class="lock-note" id="lk-note" hidden></p>
+    </form>
+  </div>
+  <p class="auth-foot">AES-256-GCM 加密 · 零知识架构 · 主密码永不上传</p>
+</div>
+
+<!-- 主应用 -->
+<div id="scr-app" hidden>
+  <div id="sb-backdrop" data-action="sb-close"></div>
+  <aside id="sidebar">
+    <div class="brand">
+      <svg class="bmark" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+        <circle cx="48" cy="48" r="44" stroke="#2F5FE8" stroke-width="6" stroke-dasharray="10 14" opacity=".45"/>
+        <rect x="32" y="42" width="32" height="24" rx="5" stroke="#2F5FE8" stroke-width="6"/>
+        <path d="M38 42v-5a10 10 0 0 1 20 0v5" stroke="#2F5FE8" stroke-width="6"/>
+      </svg>
+      <span class="bname">Mem<b>Key</b></span>
+      <span class="bver">v1.1</span>
+    </div>
+    <nav id="sb-nav"></nav>
+    <div class="sb-bottom">
+      <div class="nav-item" id="nav-settings" data-action="nav-view" data-view="settings" role="button" tabindex="0"></div>
+      <div class="nav-item nav-lock" data-action="lock" role="button" tabindex="0"></div>
+    </div>
+  </aside>
+  <main id="main">
+    <header id="topbar">
+      <button class="icon-btn" id="btn-menu" data-action="menu" aria-label="菜单">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <h1 id="page-title">全部账号</h1>
+      <div class="search-box">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="search" type="text" placeholder="搜索名称 / 用户名 / 网址…" autocomplete="off">
+        <kbd>/</kbd>
+      </div>
+      <button class="btn btn-primary" data-action="add">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        新增账号
+      </button>
+    </header>
+    <div id="view"><div class="view-inner"></div></div>
+  </main>
+</div>
+
+<div id="modal-root" hidden></div>
+<div id="toast-root"></div>
+<input type="file" id="file-import" accept="application/json,.json" hidden>
+
+<script>
+'use strict';
+/* ================= 工具 ================= */
+const $ = s => document.querySelector(s);
+const KDF_ITERS = 600000;
+const CATS = [
+  { id:'social',  label:'社交', icon:'at' },
+  { id:'work',    label:'工作', icon:'briefcase' },
+  { id:'finance', label:'金融', icon:'landmark' },
+  { id:'shopping',label:'购物', icon:'bag' },
+  { id:'dev',     label:'开发', icon:'code' },
+  { id:'other',   label:'其他', icon:'tag' },
+];
+const ICON_POOL = ['folder','star','at','briefcase','landmark','bag','code','tag','globe','user','shield','lock','sparkles','file','clock'];
+const getCats = () => S.vault?.categories || CATS;
+const enc = new TextEncoder(), dec = new TextDecoder();
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = s => { const bin = atob(s), u = new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return u; };
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxxyxxx'.replace(/x|y/g, c => { const r = crypto.getRandomValues(new Uint8Array(1))[0]%16; return (c==='x'?r:(r&3|8)).toString(16); }) + Date.now().toString(16));
+const hue = str => { let h = 0; for(const c of String(str||'?')) h = (h*31 + c.charCodeAt(0)) >>> 0; return h % 360; };
+function fmtRel(ts){
+  const d = Date.now() - ts;
+  if(d < 60e3) return '刚刚';
+  if(d < 3600e3) return Math.floor(d/60e3) + ' 分钟前';
+  if(d < 86400e3) return Math.floor(d/3600e3) + ' 小时前';
+  if(d < 7*86400e3) return Math.floor(d/86400e3) + ' 天前';
+  return new Date(ts).toLocaleDateString('zh-CN');
+}
+
+/* ================= 图标 ================= */
+const I = {
+  folder:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2Z"/>',
+  star:'<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+  at:'<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',
+  briefcase:'<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+  landmark:'<line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
+  bag:'<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+  code:'<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+  tag:'<path d="M20.59 13.41 12 22 2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82Z"/><circle cx="7" cy="7" r="1"/>',
+  shield:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>',
+  sparkles:'<path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3L12 3Z"/>',
+  sliders:'<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+  lock:'<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  plus:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  copy:'<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  eye:'<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+  eyeoff:'<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>',
+  refresh:'<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+  check:'<polyline points="20 6 9 17 4 12"/>',
+  circle:'<circle cx="12" cy="12" r="9"/>',
+  checkc:'<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+  xc:'<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>',
+  warn:'<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  trash:'<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
+  pencil:'<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+  download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  upload:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
+  globe:'<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/>',
+  clock:'<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  user:'<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/>',
+  chev:'<polyline points="6 9 12 15 18 9"/>',
+};
+const icon = (n, s=18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]||''}</svg>`;
+
+/* ================= 加密核心（浏览器端，零知识） ================= */
+async function deriveKey(password, salt, iterations){
+  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name:'PBKDF2', salt, iterations, hash:'SHA-256' },
+    base, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']
+  );
+}
+async function encryptJSON(key, obj){
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, key, enc.encode(JSON.stringify(obj)));
+  return { iv: b64(iv), data: b64(ct) };
+}
+async function decryptJSON(key, blob){
+  const pt = await crypto.subtle.decrypt({ name:'AES-GCM', iv: unb64(blob.iv) }, key, unb64(blob.data));
+  return JSON.parse(dec.decode(pt));
+}
+function vaultBlob(salt, iters, iv, data){ return { v:1, kdf:{ name:'PBKDF2-SHA256', iterations:iters, salt }, iv, data }; }
+
+/* ================= 强度 & 生成器 ================= */
+function passwordStrength(pw){
+  if(!pw) return { score:0, bits:0, label:'—', color:'var(--faint)' };
+  let pool = 0;
+  if(/[a-z]/.test(pw)) pool += 26;
+  if(/[A-Z]/.test(pw)) pool += 26;
+  if(/[0-9]/.test(pw)) pool += 10;
+  if(/[^a-zA-Z0-9]/.test(pw)) pool += 33;
+  let bits = pw.length * Math.log2(pool || 1);
+  if(/(.)\1{2,}/.test(pw)) bits *= .85;
+  if(/(0123|1234|2345|3456|4567|5678|6789|abcd|qwer|asdf|zxcv)/i.test(pw)) bits *= 0.7;
+  if(/(password|admin|letmein|iloveyou|111111|123456|abc123)/i.test(pw)) bits = Math.min(bits, 22);
+  if(/^[a-zA-Z]+$/.test(pw)) bits *= .9;
+  bits = Math.round(bits);
+  const score = bits >= 100 ? 4 : bits >= 70 ? 3 : bits >= 45 ? 2 : bits >= 28 ? 1 : 0;
+  const labels = ['很弱','弱','一般','强','极强'];
+  const colors = ['var(--red)','var(--red)','var(--amber)','var(--green)','var(--green)'];
+  return { score, bits, label:labels[score], color:colors[score] };
+}
+function randInt(max){ // 拒绝采样，保证均匀
+  const lim = Math.floor(0x100000000 / max) * max;
+  const u = new Uint32Array(1);
+  do { crypto.getRandomValues(u); } while(u[0] >= lim);
+  return u[0] % max;
+}
+function genPassword(o){
+  const sets = {
+    upper:   o.exclude ? 'ABCDEFGHJKLMNPQRSTUVWXYZ' : 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+    lower:   o.exclude ? 'abcdefghijkmnpqrstuvwxyz' : 'abcdefghijklmnopqrstuvwxyz',
+    digits:  o.exclude ? '23456789' : '0123456789',
+    symbols: '!@#$%^&*()-_=+[]{};:,.?/~',
+  };
+  const active = ['upper','lower','digits','symbols'].filter(k => o[k]);
+  if(!active.length || o.length < 4) return '';
+  const pool = active.map(k => sets[k]).join('');
+  const chars = active.map(k => sets[k][randInt(sets[k].length)]);
+  for(let i = chars.length; i < o.length; i++) chars.push(pool[randInt(pool.length)]);
+  for(let i = chars.length - 1; i > 0; i--){ const j = randInt(i + 1); [chars[i],chars[j]] = [chars[j],chars[i]]; }
+  return chars.join('');
+}
+const REQS = [
+  { test: v => v.length >= 12,  label: '长度不少于 12 位' },
+  { test: v => /[a-z]/.test(v) && /[A-Z]/.test(v), label: '同时包含大写和小写字母' },
+  { test: v => /[0-9]/.test(v) || /[^a-zA-Z0-9]/.test(v), label: '包含数字或符号' },
+];
+
+/* ================= 状态 ================= */
+const S = {
+  key: null, vault: null, blob: null, meta: null,
+  view: 'list', cat: 'all', q: '',
+  detail: null, editing: null,
+  pendingImport: null,
+  lastActivity: Date.now(),
+  clipTimer: null, editDirty: false, lastEsc: 0,
+  catEditing: null, newCatIcon: 'tag',
+};
+const findEntry = id => S.vault?.entries.find(e => e.id === id);
+
+/* ================= 服务端 API（只传密文） ================= */
+async function apiGetVault(){
+  const r = await fetch('/api/vault');
+  if(r.status === 404) return null;
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+async function apiPutVault(blob){
+  const r = await fetch('/api/vault', {
+    method:'PUT', headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify(blob),
+  });
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+}
+async function apiDeleteVault(){
+  try{ await fetch('/api/vault', { method:'DELETE' }); }catch{}
+}
+
+/* ================= Toast / 弹窗 ================= */
+function toast(msg, type='ok'){
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `${icon(type==='ok'?'checkc':type==='warn'?'warn':'xc',15)}<span>${esc(msg)}</span>`;
+  $('#toast-root').appendChild(el);
+  requestAnimationFrame(() => el.classList.add('in'));
+  setTimeout(() => { el.classList.remove('in'); setTimeout(() => el.remove(), 240); }, 2600);
+}
+function openModal(html){
+  const root = $('#modal-root');
+  root.innerHTML = `<div class="modal-backdrop">${html}</div>`;
+  root.hidden = false;
+  const bd = root.firstElementChild;
+  requestAnimationFrame(() => bd.classList.add('show'));
+  bd.addEventListener('click', e => { if(e.target === bd && !S.editDirty) closeModal(); });
+  const f = bd.querySelector('input,select,textarea,button');
+  if(f) setTimeout(() => f.focus(), 60);
+}
+function closeModal(){
+  const root = $('#modal-root');
+  const bd = root.firstElementChild;
+  if(!bd) return;
+  S.editDirty = false; S.detail = null; S.editing = null;
+  bd.classList.remove('show');
+  setTimeout(() => { root.innerHTML = ''; root.hidden = true; }, 190);
+}
+function confirmModal({ title, message, okText='确定', danger=false, action, dataId='' }){
+  openModal(`
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:420px">
+    <div class="m-body" style="padding-top:22px">
+      <div class="m-title" style="font-size:15.5px">${esc(title)}</div>
+      <p style="font-size:13px;color:var(--muted);line-height:1.65">${esc(message)}</p>
+    </div>
+    <div class="m-foot">
+      <div class="grow"></div>
+      <button class="btn" data-action="close-modal">取消</button>
+      <button class="btn ${danger?'btn-danger':'btn-primary'}" data-action="${action}" data-id="${esc(dataId)}">${esc(okText)}</button>
+    </div>
+  </div>`);
+}
+function busy(btn, on, text){
+  if(on){ btn.dataset.html = btn.innerHTML; btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> ${esc(text || '处理中…')}`; }
+  else { btn.disabled = false; if(btn.dataset.html) btn.innerHTML = btn.dataset.html; }
+}
+
+/* ================= 剪贴板 ================= */
+async function copyText(t){
+  try{ await navigator.clipboard.writeText(t); return true; }
+  catch{
+    const ta = document.createElement('textarea');
+    ta.value = t; ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    let ok = false; try{ ok = document.execCommand('copy'); }catch{}
+    ta.remove(); return ok;
+  }
+}
+async function doCopy(text, label, secret=false){
+  if(!text){ toast('没有可复制的内容', 'warn'); return; }
+  if(await copyText(text)){
+    toast(secret ? `${label}已复制 · 30 秒后自动清除` : `${label}已复制`);
+    if(secret){
+      clearTimeout(S.clipTimer);
+      S.clipTimer = setTimeout(async () => { try{ await navigator.clipboard.writeText(''); }catch{} }, 30000);
+    }
+  } else toast('复制失败，请手动复制', 'err');
+}
+
+/* ================= 屏幕切换 ================= */
+function showScreen(id){
+  ['scr-setup','scr-lock','scr-app'].forEach(s => $('#'+s).hidden = (s !== id));
+}
+function lockNow(note){
+  try{ navigator.clipboard?.writeText(''); }catch{}
+  clearTimeout(S.clipTimer);
+  S.key = null; S.vault = null; S.view = 'list'; S.cat = 'all'; S.q = '';
+  S.detail = null; S.editing = null; S.editDirty = false;
+  closeModal();
+  $('#modal-root').hidden = true; $('#modal-root').innerHTML = '';
+  const pw = $('#lk-pw'); pw.value = '';
+  const err = $('#lk-err'); err.hidden = true;
+  const n = $('#lk-note');
+  if(note){ n.textContent = note; n.hidden = false; } else n.hidden = true;
+  showScreen('scr-lock');
+  setTimeout(() => pw.focus(), 60);
+}
+
+/* ================= 持久化（加密后 PUT 密文文件） ================= */
+async function persist(){
+  const payload = await encryptJSON(S.key, { entries:S.vault.entries, settings:S.vault.settings, meta:S.vault.meta });
+  S.blob = vaultBlob(S.blob.kdf.salt, S.blob.kdf.iterations, payload.iv, payload.data);
+  await apiPutVault(S.blob);
+}
+
+/* ================= 渲染：侧栏 ================= */
+function issueCount(){
+  const a = analyze();
+  return a.weak.length + a.reusedCount;
+}
+function renderSidebar(){
+  const es = S.vault.entries;
+  const cnt = id => es.filter(e => (e.category || 'other') === id).length;
+  const issues = issueCount();
+  const item = (active, ic, label, right, attrs) =>
+    `<div class="nav-item ${active?'active':''}" ${attrs} role="button" tabindex="0">${icon(ic,17)}<span>${label}</span>${right||''}</div>`;
+  $('#sb-nav').innerHTML =
+    item(S.view==='list' && S.cat==='all', 'folder', '全部账号', `<span class="cnt">${es.length}</span>`, `data-action="nav-cat" data-cat="all"`) +
+    item(S.view==='list' && S.cat==='fav', 'star', '收藏', `<span class="cnt">${es.filter(e=>e.favorite).length}</span>`, `data-action="nav-cat" data-cat="fav"`) +
+    `<div class="nav-sec">分类</div>` +
+    getCats().map(c => item(S.view==='list' && S.cat===c.id, c.icon, c.label, `<span class="cnt">${cnt(c.id)}</span>`, `data-action="nav-cat" data-cat="${esc(c.id)}"`)).join('') +
+    `<div class="nav-sec">工具</div>` +
+    item(S.view==='security', 'shield', '安全报告', issues ? `<span class="badge">${issues}</span>` : '', `data-action="nav-view" data-view="security"`) +
+    item(S.view==='generator', 'sparkles', '密码生成器', '', `data-action="nav-view" data-view="generator"`);
+  $('#nav-settings').innerHTML = `${icon('sliders',17)}<span>设置</span>`;
+  $('#nav-settings').classList.toggle('active', S.view === 'settings');
+  document.querySelector('.nav-lock').innerHTML = `${icon('lock',17)}<span>立即锁定</span>`;
+}
+
+/* ================= 渲染：标题 & 视图 ================= */
+function pageTitle(){
+  if(S.view === 'list'){
+    if(S.cat === 'all') return '全部账号';
+    if(S.cat === 'fav') return '收藏';
+    return getCats().find(c => c.id === S.cat)?.label || '账号';
+  }
+  return { generator:'密码生成器', security:'安全报告', settings:'设置' }[S.view] || '';
+}
+function renderApp(){
+  renderSidebar();
+  $('#page-title').textContent = pageTitle();
+  const inner = $('#view .view-inner');
+  ({ list:renderList, generator:renderGen, security:renderSec, settings:renderSet }[S.view] || renderList)(inner);
+}
+
+/* ================= 渲染：列表 ================= */
+const rowHTML = (e, i) => {
+  const h = hue(e.title || '?');
+  const st = passwordStrength(e.password);
+  return `<div class="entry row-in" style="animation-delay:${Math.min(i*18,220)}ms" data-action="open-detail" data-id="${esc(e.id)}" role="button" tabindex="0" aria-label="${esc(e.title)}">
+    <div class="avatar" style="background:hsl(${h},75%,93%);color:hsl(${h},52%,38%);border:1px solid hsl(${h},50%,88%)">${esc(String(e.title||'?').trim().charAt(0).toUpperCase())}</div>
+    <div class="row-main">
+      <div class="row-title">${esc(e.title)}</div>
+      <div class="row-sub">${esc(e.username || '—')}</div>
+    </div>
+    <span class="strength-dot" style="background:${st.color}" title="密码强度：${st.label}"></span>
+    <div class="row-actions">
+      <button class="icon-btn" data-action="copy-user" data-id="${esc(e.id)}" title="复制用户名" aria-label="复制用户名">${icon('user',15)}</button>
+      <button class="icon-btn" data-action="copy-pass" data-id="${esc(e.id)}" title="复制密码" aria-label="复制密码">${icon('copy',15)}</button>
+      <button class="icon-btn star-btn ${e.favorite?'on':''}" data-action="fav" data-id="${esc(e.id)}" title="${e.favorite?'取消收藏':'收藏'}" aria-label="收藏">${icon('star',15)}</button>
+    </div>
+  </div>`;
+};
+function renderList(container){
+  const q = S.q.trim().toLowerCase();
+  let items = S.vault.entries.slice().sort((a,b) => b.updatedAt - a.updatedAt);
+  if(S.cat === 'fav') items = items.filter(e => e.favorite);
+  else if(S.cat !== 'all') items = items.filter(e => (e.category || 'other') === S.cat);
+  if(q) items = items.filter(e => [e.title, e.username, e.url, e.notes].some(v => String(v||'').toLowerCase().includes(q)));
+  if(!items.length){
+    container.innerHTML = S.vault.entries.length
+      ? `<div class="empty row-in">
+          <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#B4C2D8" stroke-width="1.6" stroke-linecap="round" style="margin:0 auto;display:block"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <h3>没有找到匹配的账号</h3><p>换个关键词，或清除搜索条件试试</p>
+        </div>`
+      : `<div class="empty row-in">
+          <svg width="72" height="72" viewBox="0 0 72 72" fill="none" style="margin:0 auto;display:block">
+            <rect x="9" y="9" width="54" height="54" rx="14" stroke="#C9D4E3" stroke-width="2" stroke-dasharray="6 8"/>
+            <rect x="27" y="32" width="18" height="14" rx="4" stroke="#2F5FE8" stroke-width="2.4"/>
+            <path d="M31 32v-5a5 5 0 0 1 10 0v5" stroke="#2F5FE8" stroke-width="2.4"/>
+          </svg>
+          <h3>还没有任何账号</h3><p>所有数据加密后保存在本机 data/vault.enc 文件中</p>
+          <button class="btn btn-primary" data-action="add">${icon('plus',15)} 新增账号</button>
+        </div>`;
+    return;
+  }
+  container.innerHTML = items.map(rowHTML).join('');
+}
+
+/* ================= 渲染：生成器 ================= */
+function genHTML(embed){
+  return `<div class="gen ${embed?'gen-embed':''}"${embed?' hidden':''}>
+    <div class="gen-display">
+      <span class="gen-out" data-gen-out></span>
+      <button type="button" class="icon-btn" data-action="gen-regen" aria-label="重新生成" title="重新生成">${icon('refresh',16)}</button>
+      ${embed ? '' : `<button type="button" class="icon-btn" data-action="gen-copy" aria-label="复制" title="复制">${icon('copy',16)}</button>`}
+    </div>
+    <div class="gen-opts">
+      <div class="gen-len"><span>长度</span><input type="range" min="8" max="64" value="16" data-gen-ctrl="length" aria-label="密码长度"><b data-gen-len-val>16</b></div>
+      <div class="gen-toggles">
+        <label class="gtoggle"><span class="switch"><input type="checkbox" checked data-gen-ctrl="upper"><span class="knob"></span></span>大写 A-Z</label>
+        <label class="gtoggle"><span class="switch"><input type="checkbox" checked data-gen-ctrl="lower"><span class="knob"></span></span>小写 a-z</label>
+        <label class="gtoggle"><span class="switch"><input type="checkbox" checked data-gen-ctrl="digits"><span class="knob"></span></span>数字 0-9</label>
+        <label class="gtoggle"><span class="switch"><input type="checkbox" checked data-gen-ctrl="symbols"><span class="knob"></span></span>符号 !@#</label>
+      </div>
+      <label class="check"><input type="checkbox" data-gen-ctrl="exclude"><span>排除易混淆字符（I l 1 O 0）</span></label>
+    </div>
+    <div class="meter gen-strength"><div class="segs"><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div><span class="bits"></span><span class="mlabel"></span></div>
+    ${embed ? `<div class="gen-use-row"><button type="button" class="btn btn-primary btn-sm" data-action="gen-use">使用此密码</button></div>` : ''}
+  </div>`;
+}
+function attachGen(box){
+  if(!box._gen){
+    box._gen = { length:16, upper:true, lower:true, digits:true, symbols:true, exclude:false, value:'' };
+    box._gen.value = genPassword(box._gen);
+  }
+  renderGenBox(box);
+}
+function renderGenBox(box){
+  const st = box._gen;
+  const s = passwordStrength(st.value);
+  box.querySelector('[data-gen-out]').textContent = st.value || '—';
+  box.querySelector('[data-gen-len-val]').textContent = st.length;
+  const range = box.querySelector('[data-gen-ctrl=length]');
+  range.value = st.length;
+  const pct = ((st.length - 8) / 56) * 100;
+  range.style.background = `linear-gradient(90deg, var(--blue) ${pct}%, var(--soft2) ${pct}%)`;
+  ['upper','lower','digits','symbols','exclude'].forEach(k => { box.querySelector(`[data-gen-ctrl=${k}]`).checked = !!st[k]; });
+  const segs = box.querySelectorAll('.meter .seg');
+  segs.forEach((seg,i) => seg.style.background = i < s.score ? s.color : 'var(--soft2)');
+  const m = box.querySelector('.meter');
+  m.querySelector('.mlabel').textContent = s.label;
+  m.querySelector('.bits').textContent = st.value ? `≈ ${s.bits} bit` : '';
+}
+function renderGen(container){
+  container.innerHTML = `<div class="gen-wrap row-in">
+    <div class="gen-card">
+      ${genHTML(false)}
+      <p class="gen-hint">根据 NIST SP 800-63B 指引，建议使用至少 15 位的随机密码；密钥由浏览器密码学安全随机数生成器（CSPRNG）产生，不会离开本机。</p>
+    </div>
+  </div>`;
+  attachGen(container.querySelector('.gen'));
+}
+
+/* ================= 渲染：安全报告 ================= */
+function analyze(){
+  const es = S.vault.entries;
+  const weak = es.filter(e => passwordStrength(e.password).score <= 1 || e.password.length < 10);
+  const byPw = {};
+  es.forEach(e => { (byPw[e.password] ||= []).push(e); });
+  const reusedGroups = Object.values(byPw).filter(a => a.length > 1);
+  const reusedCount = reusedGroups.reduce((s,a) => s + a.length, 0);
+  return { weak, reusedGroups, reusedCount };
+}
+function renderSec(container){
+  const a = analyze();
+  const total = S.vault.entries.length;
+  const ids = new Set();
+  a.weak.forEach(e => ids.add(e.id));
+  a.reusedGroups.forEach(g => g.forEach(e => ids.add(e.id)));
+  const good = total - ids.size;
+  let html = `<div class="stats row-in">
+    <div class="stat"><div class="num" style="color:${a.weak.length?'var(--red)':'var(--green)'}">${a.weak.length}</div><div class="sl">弱密码</div></div>
+    <div class="stat"><div class="num" style="color:${a.reusedCount?'var(--amber)':'var(--green)'}">${a.reusedCount}</div><div class="sl">重复使用</div></div>
+    <div class="stat"><div class="num" style="color:var(--green)">${good}</div><div class="sl">健康账号</div></div>
+  </div>`;
+  if(!total){
+    html += `<div class="empty row-in"><h3>暂无数据</h3><p>添加账号后，这里会展示弱密码与重复密码的检测结果</p></div>`;
+  } else if(ids.size === 0){
+    html += `<div class="empty row-in">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto;display:block"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      <h3>安全状况良好</h3><p>未发现弱密码或重复使用的密码，继续保持</p></div>`;
+  } else {
+    if(a.weak.length){
+      html += `<div class="sec-h">${icon('warn',15)} 弱密码（${a.weak.length}）</div><div class="sec-list">` +
+        a.weak.map((e,i) => rowHTML(e,i)).join('') + `</div>`;
+    }
+    if(a.reusedGroups.length){
+      html += `<div class="sec-h">${icon('warn',15)} 重复密码（${a.reusedGroups.length} 组）</div>` +
+        a.reusedGroups.map(g => `<div class="reuse-group row-in">
+          <div class="rg-t">${icon('warn',13)} ${g.length} 个账号使用了相同密码</div>
+          ${g.map((e,i) => rowHTML(e,i)).join('')}
+        </div>`).join('');
+    }
+  }
+  container.innerHTML = html;
+}
+
+/* ================= 渲染：设置 ================= */
+function renderSet(container){
+  const al = S.vault.settings?.autoLock ?? 5;
+  const lockOpts = [
+    { v:'1',  label:'1 分钟' }, { v:'5', label:'5 分钟' }, { v:'10', label:'10 分钟' },
+    { v:'30', label:'30 分钟' }, { v:'0', label:'从不' },
+  ];
+  const cats = getCats();
+  const cntOf = id => S.vault.entries.filter(e => (e.category || 'other') === id).length;
+  const filePath = S.meta?.vaultFile || 'data/vault.enc';
+  const serviceUrl = S.meta?.url || 'http://localhost:8420';
+  const catRow = c => {
+    const editing = S.catEditing === c.id;
+    const locked = c.id === 'other';
+    return `<div class="set-row cat-row">
+      <span class="cat-ic">${icon(c.icon,15)}</span>
+      ${editing
+        ? `<div style="flex:1;display:flex;gap:6px;align-items:center;min-width:0">
+            <input type="text" class="cat-name-input" id="cat-rename-input" maxlength="20" value="${esc(c.label)}" style="flex:1">
+            <button class="btn btn-sm btn-primary" data-action="cat-rename-save" data-id="${esc(c.id)}">保存</button>
+            <button class="btn btn-sm" data-action="cat-rename-cancel">取消</button>
+          </div>`
+        : `<div class="set-info"><b>${esc(c.label)}</b></div>
+           <span class="cat-cnt">${cntOf(c.id)} 条</span>
+           <button class="icon-btn" data-action="cat-rename" data-id="${esc(c.id)}" title="重命名" aria-label="重命名" ${locked?'disabled style="opacity:.3;cursor:default"':''}>${icon('pencil',15)}</button>
+           <button class="icon-btn" data-action="cat-del" data-id="${esc(c.id)}" title="${locked?'「其他」为保留分类，不可删除':'删除分类'}" aria-label="删除" ${locked?'disabled style="opacity:.3;cursor:default"':''}>${icon('trash',15)}</button>`}
+    </div>`;
+  };
+  container.innerHTML = `<div class="cards" style="max-width:680px">
+    <section class="card row-in">
+      <h3>${icon('file',16)} 数据存储</h3>
+      <p class="about">
+        密码库以 AES-256-GCM 密文形式保存在本机文件：<br><span class="path">${esc(filePath)}</span><br>
+        服务地址：<span class="path">${esc(serviceUrl)}</span>（仅本机可访问）<br>
+        整个 MemKey 文件夹可直接拷贝到 U 盘或其他电脑使用。
+      </p>
+    </section>
+    <section class="card row-in">
+      <h3>${icon('shield',16)} 安全</h3>
+      <div class="set-row"><div class="set-info"><b>自动锁定</b><span class="sub">一段时间无操作后自动锁定保险库</span></div>
+        <div style="width:130px">${ddHTML('autolock', lockOpts, String(al))}</div></div>
+      <div class="set-row"><div class="set-info"><b>修改主密码</b><span class="sub">更换用于加密全部数据的主密码</span></div>
+        <button class="btn btn-sm" data-action="chgpass">修改</button></div>
+    </section>
+    <section class="card row-in">
+      <h3>${icon('tag',16)} 分类管理</h3>
+      ${cats.map(catRow).join('')}
+      <div class="cat-icons">${ICON_POOL.map(ic => `<button type="button" class="icon-pick ${ic===S.newCatIcon?'sel':''}" data-action="cat-icon-pick" data-ic="${ic}" title="使用此图标" aria-label="图标 ${ic}">${icon(ic,15)}</button>`).join('')}</div>
+      <div class="cat-add-row">
+        <input type="text" id="new-cat-name" maxlength="20" placeholder="新分类名称">
+        <button class="btn btn-sm btn-primary" data-action="cat-add">${icon('plus',13)} 添加</button>
+      </div>
+    </section>
+    <section class="card row-in">
+      <h3>${icon('download',16)} 备份</h3>
+      <div class="set-row"><div class="set-info"><b>导出加密备份</b><span class="sub">备份文件仍受主密码加密，可安全存放在任意位置</span></div>
+        <button class="btn btn-sm" data-action="export">导出</button></div>
+      <div class="set-row"><div class="set-info"><b>导入备份</b><span class="sub">将覆盖当前全部数据，之后需使用该备份的主密码解锁</span></div>
+        <button class="btn btn-sm btn-warn" data-action="import-click">导入</button></div>
+    </section>
+    <section class="card row-in">
+      <h3>${icon('lock',16)} 关于</h3>
+      <p class="about">MemKey v1.1 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 install-startup.bat 安装。</p>
+    </section>
+    <section class="card card-danger row-in">
+      <h3>${icon('warn',16)} 危险操作</h3>
+      <div class="set-row"><div class="set-info"><b>清除所有数据</b><span class="sub">删除本机密码库文件与全部数据，不可恢复</span></div>
+        <button class="btn btn-sm btn-danger" data-action="wipe">清除</button></div>
+    </section>
+  </div>`;
+}
+
+/* ================= 弹窗：详情 / 编辑 ================= */
+function openDetail(id){
+  const e = findEntry(id);
+  if(!e) return;
+  S.detail = id;
+  const h = hue(e.title || '?');
+  const st = passwordStrength(e.password);
+  const catLabel = getCats().find(c => c.id === (e.category || 'other'))?.label || '其他';
+  const url = e.url ? (/^https?:\/\//i.test(e.url) ? e.url : 'https://' + e.url) : '';
+  openModal(`
+  <div class="modal" role="dialog" aria-modal="true" aria-label="账号详情">
+    <div class="m-head">
+      <div class="avatar av-lg" style="background:hsl(${h},75%,93%);color:hsl(${h},52%,38%);border:1px solid hsl(${h},50%,88%)">${esc(String(e.title||'?').trim().charAt(0).toUpperCase())}</div>
+      <div class="m-head-main">
+        <div class="m-title">${esc(e.title)}</div>
+        ${url ? `<a class="m-url" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${icon('globe',13)} ${esc(e.url)}</a>` : ''}
+      </div>
+      <button class="icon-btn star-btn ${e.favorite?'on':''}" data-action="fav" data-id="${esc(e.id)}" title="收藏" aria-label="收藏">${icon('star',17)}</button>
+      <button class="icon-btn" data-action="close-modal" aria-label="关闭">${icon('x',18)}</button>
+    </div>
+    <div class="m-body">
+      <div class="dfield"><span class="dl">用户名</span><span class="dv">${e.username ? esc(e.username) : '<span style="color:var(--faint)">未填写</span>'}</span>
+        ${e.username ? `<button class="icon-btn" data-action="copy-user" data-id="${esc(e.id)}" aria-label="复制用户名">${icon('copy',16)}</button>` : ''}</div>
+      <div class="dfield"><span class="dl">密码</span><span class="dv mono" id="dv-pw">${'•'.repeat(Math.min(String(e.password||'').length || 8, 16))}</span>
+        <button class="icon-btn" data-action="reveal" data-target="dv-pw" aria-label="显示密码">${icon('eye',16)}</button>
+        <button class="icon-btn" data-action="copy-pass" data-id="${esc(e.id)}" aria-label="复制密码">${icon('copy',16)}</button></div>
+      ${e.notes ? `<div class="dfield"><span class="dl">备注</span><span class="dv notes">${esc(e.notes)}</span>
+        <button class="icon-btn" data-action="copy-notes" data-id="${esc(e.id)}" aria-label="复制备注">${icon('copy',16)}</button></div>` : ''}
+      <div class="m-meta">
+        <span class="chip">${esc(catLabel)}</span>
+        <span class="m-time">${icon('clock',13)} 更新于 ${fmtRel(e.updatedAt)}</span>
+        <span class="strength-tag" style="color:${st.color}">强度：${st.label}</span>
+      </div>
+    </div>
+    <div class="m-foot">
+      <button class="btn btn-danger" data-action="delete">${icon('trash',14)} 删除</button>
+      <div class="grow"></div>
+      <button class="btn" data-action="close-modal">关闭</button>
+      <button class="btn btn-primary" data-action="edit">${icon('pencil',14)} 编辑</button>
+    </div>
+  </div>`);
+}
+function openEdit(id){
+  const e = id ? findEntry(id) : null;
+  S.editing = e ? e.id : null;
+  S.editDirty = false;
+  const v = k => esc(e ? e[k] || '' : '');
+  openModal(`
+  <form class="modal" data-form="edit" role="dialog" aria-modal="true" aria-label="${e?'编辑账号':'新增账号'}" autocomplete="off">
+    <div class="m-head">
+      <div class="m-title">${e ? '编辑账号' : '新增账号'}</div>
+      <div class="grow"></div>
+      <button type="button" class="icon-btn" data-action="close-modal" aria-label="关闭">${icon('x',18)}</button>
+    </div>
+    <div class="m-body">
+      <div class="frow"><label class="flabel">名称 <i>*</i></label><input type="text" name="title" required maxlength="80" value="${v('title')}" placeholder="如：GitHub"></div>
+      <div class="frow"><label class="flabel">用户名</label><input type="text" name="username" maxlength="120" value="${v('username')}" placeholder="邮箱或账号"></div>
+      <div class="frow"><label class="flabel">网址</label><input type="text" name="url" maxlength="300" value="${v('url')}" placeholder="example.com"></div>
+      <div class="frow">
+        <label class="flabel">密码</label>
+        <div class="pw-wrap">
+          <input name="password" id="ep-pw" type="password" data-strength="ep-meter" value="${v('password')}">
+          <button type="button" class="icon-btn" data-action="eye" data-target="ep-pw" aria-label="显示密码">${icon('eye',17)}</button>
+          <button type="button" class="btn btn-sm" data-action="gen-toggle">${icon('sparkles',14)} 生成</button>
+        </div>
+        <div class="meter" id="ep-meter"><div class="segs"><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div><span class="mlabel">—</span></div>
+        ${genHTML(true)}
+      </div>
+      <div class="frow"><label class="flabel">备注</label><textarea name="notes" maxlength="2000" placeholder="安全问题、恢复代码、备注…">${v('notes')}</textarea></div>
+      <div class="fgrid">
+        <div class="frow"><label class="flabel">分类</label>
+          ${ddHTML('category', getCats().map(c => ({ v:c.id, label:c.label, icon:c.icon })), e ? (e.category || 'other') : 'other')}</div>
+        <div class="frow"><label class="flabel">收藏</label>
+          <label class="switch" style="margin-top:8px"><input type="checkbox" name="favorite" ${e && e.favorite ? 'checked' : ''}><span class="knob"></span></label></div>
+      </div>
+    </div>
+    <div class="m-foot">
+      <div class="grow"></div>
+      <button type="button" class="btn" data-action="close-modal">取消</button>
+      <button type="submit" class="btn btn-primary">${icon('check',14)} 保存</button>
+    </div>
+  </form>`);
+  const pw = $('#ep-pw');
+  renderMeter($('#ep-meter'), pw.value);
+  attachGen($('.gen-embed'));
+  setTimeout(() => document.querySelector('[name=title]').focus(), 60);
+}
+function openChangeMaster(){
+  openModal(`
+  <form class="modal" data-form="chgpass" role="dialog" aria-modal="true" aria-label="修改主密码" autocomplete="off" style="max-width:440px">
+    <div class="m-head"><div class="m-title">修改主密码</div><div class="grow"></div>
+      <button type="button" class="icon-btn" data-action="close-modal" aria-label="关闭">${icon('x',18)}</button></div>
+    <div class="m-body">
+      <div class="frow"><label class="flabel">当前主密码</label><input id="cp-old" type="password" autocomplete="current-password"></div>
+      <div class="frow"><label class="flabel">新主密码</label><input id="cp-new" type="password" data-strength="cp-meter" autocomplete="new-password">
+        <div class="meter" id="cp-meter"><div class="segs"><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div><span class="mlabel">—</span></div></div>
+      <div class="frow"><label class="flabel">确认新主密码</label><input id="cp-new2" type="password" autocomplete="new-password"></div>
+      <div class="err" id="cp-err" hidden></div>
+    </div>
+    <div class="m-foot">
+      <div class="grow"></div>
+      <button type="button" class="btn" data-action="close-modal">取消</button>
+      <button type="submit" class="btn btn-primary">确认修改</button>
+    </div>
+  </form>`);
+}
+
+/* ================= 自定义下拉组件 ================= */
+function ddHTML(name, options, curVal){
+  const cur = options.find(o => o.v === curVal) || options[0] || { v:'', label:'—', icon:null };
+  return `<div class="dd" data-dd data-dd-name="${esc(name)}">
+    <input type="hidden" name="${esc(name)}" value="${esc(cur.v)}">
+    <button type="button" class="dd-btn" data-action="dd-toggle" aria-haspopup="listbox">
+      <span class="dd-cur"><span class="dd-lb">${cur.icon ? icon(cur.icon,16) : ''}<span>${esc(cur.label)}</span></span>${icon('chev',16).replace('<svg','<svg class="dd-arrow"')}</span>
+    </button>
+    <div class="dd-menu" role="listbox">
+      ${options.map(o => `<div class="dd-opt ${o.v===cur.v?'sel':''}" data-action="dd-opt" data-val="${esc(o.v)}" role="option" tabindex="0">
+        <span class="dd-lb">${o.icon ? icon(o.icon,16) : ''}<span>${esc(o.label)}</span></span>
+        <span class="dd-check">${icon('check',14)}</span>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+/* ================= 强度条渲染 ================= */
+function renderMeter(el, pw){
+  if(!el) return;
+  const s = passwordStrength(pw);
+  el.querySelectorAll('.seg').forEach((seg,i) => seg.style.background = (pw && i < s.score) ? s.color : 'var(--soft2)');
+  const lb = el.querySelector('.mlabel');
+  if(lb){ lb.textContent = pw ? s.label : '—'; lb.style.color = pw ? s.color : ''; }
+}
+function renderChecklist(pw){
+  $('#su-check').innerHTML = REQS.map(r =>
+    `<li class="${r.test(pw) ? 'ok' : ''}">${icon(r.test(pw) ? 'check' : 'circle', 13)}<span>${r.label}</span></li>`).join('');
+}
+
+/* ================= 动作 ================= */
+async function exportBackup(){
+  if(!S.blob){ toast('没有可导出的数据', 'warn'); return; }
+  const out = { app:'MemKey', version:1, exportedAt:new Date().toISOString(), vault:S.blob };
+  const d = new Date(), p = n => String(n).padStart(2,'0');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type:'application/json' }));
+  a.download = `memkey-backup-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  toast('已导出加密备份');
+}
+function handleImportFile(input){
+  const f = input.files && input.files[0];
+  input.value = '';
+  if(!f) return;
+  f.text().then(txt => {
+    let obj;
+    try{ obj = JSON.parse(txt); }catch{ toast('文件格式错误', 'err'); return; }
+    const vault = obj?.vault ?? obj;
+    if(!vault?.kdf?.salt || !vault?.iv || !vault?.data){ toast('不是有效的 MemKey 备份文件', 'err'); return; }
+    S.pendingImport = vault;
+    confirmModal({
+      title: '导入备份',
+      message: `将覆盖当前全部数据（现有 ${S.vault.entries.length} 条记录）。导入后需使用该备份的主密码解锁，此操作不可撤销。`,
+      okText: '覆盖并导入', danger: true, action: 'import-confirm',
+    });
+  }).catch(() => toast('无法读取文件', 'err'));
+}
+function enterApp(){
+  S.vault.settings ??= { autoLock:5 };
+  showScreen('scr-app');
+  renderApp();
+  S.lastActivity = Date.now();
+}
+
+/* ================= 事件：点击委托 ================= */
+document.addEventListener('click', async e => {
+  // 点击下拉外部时关闭所有下拉
+  if(!e.target.closest('.dd')) document.querySelectorAll('.dd.open').forEach(d => d.classList.remove('open'));
+  const t = e.target.closest('[data-action]');
+  if(!t) return;
+  const a = t.dataset.action, id = t.dataset.id;
+  try{
+  switch(a){
+    case 'dd-toggle': {
+      const dd = t.closest('.dd');
+      const wasOpen = dd.classList.contains('open');
+      document.querySelectorAll('.dd.open').forEach(d => d.classList.remove('open'));
+      if(!wasOpen) dd.classList.add('open');
+      break;
+    }
+    case 'dd-opt': {
+      const dd = t.closest('.dd');
+      const val = t.dataset.val;
+      dd.querySelector('input[type=hidden]').value = val;
+      dd.querySelector('.dd-cur .dd-lb').innerHTML = t.querySelector('.dd-lb').innerHTML;
+      dd.querySelectorAll('.dd-opt').forEach(o => o.classList.toggle('sel', o.dataset.val === val));
+      dd.classList.remove('open');
+      if(dd.dataset.ddName === 'autolock'){
+        S.vault.settings.autoLock = +val;
+        await persist();
+        toast(+val === 0 ? '已关闭自动锁定' : `将在 ${val} 分钟无操作后自动锁定`);
+      }
+      break;
+    }
+    case 'cat-icon-pick': {
+      S.newCatIcon = t.dataset.ic;
+      document.querySelectorAll('.cat-icons .icon-pick').forEach(b => b.classList.toggle('sel', b.dataset.ic === S.newCatIcon));
+      break;
+    }
+    case 'cat-add': {
+      const input = $('#new-cat-name');
+      const label = input.value.trim();
+      if(!label){ toast('请输入分类名称', 'warn'); input.focus(); break; }
+      if(getCats().some(c => c.label === label)){ toast('已存在同名分类', 'warn'); break; }
+      S.vault.categories.push({ id:'c_' + uuid().slice(0,8), label, icon:S.newCatIcon || 'tag' });
+      await persist();
+      renderSet($('#view .view-inner'));
+      toast('分类已添加');
+      break;
+    }
+    case 'cat-rename': {
+      S.catEditing = t.dataset.id;
+      renderSet($('#view .view-inner'));
+      setTimeout(() => { const inp = $('#cat-rename-input'); if(inp){ inp.focus(); inp.select(); } }, 40);
+      break;
+    }
+    case 'cat-rename-save': {
+      const input = $('#cat-rename-input');
+      const label = input.value.trim();
+      if(!label){ toast('名称不能为空', 'warn'); break; }
+      const c = S.vault.categories.find(x => x.id === S.catEditing);
+      if(c) c.label = label;
+      S.catEditing = null;
+      await persist();
+      renderApp();
+      toast('分类已重命名');
+      break;
+    }
+    case 'cat-rename-cancel': {
+      S.catEditing = null;
+      renderSet($('#view .view-inner'));
+      break;
+    }
+    case 'cat-del': {
+      const c = S.vault.categories.find(x => x.id === t.dataset.id);
+      if(!c || t.dataset.id === 'other') break;
+      confirmModal({
+        title:'删除分类',
+        message:`「${c.label}」将被删除，其下的账号会归入「其他」。确定删除吗？`,
+        okText:'删除', danger:true, action:'cat-del-confirm', dataId:t.dataset.id,
+      });
+      break;
+    }
+    case 'cat-del-confirm': {
+      S.vault.categories = S.vault.categories.filter(x => x.id !== id);
+      S.vault.entries.forEach(en => { if((en.category || 'other') === id) en.category = 'other'; });
+      if(S.cat === id){ S.cat = 'all'; }
+      await persist();
+      closeModal();
+      renderApp();
+      toast('分类已删除');
+      break;
+    }
+    case 'nav-cat':
+      S.view = 'list'; S.cat = t.dataset.cat;
+      $('#scr-app').classList.remove('sb-open');
+      renderApp(); break;
+    case 'nav-view':
+      S.view = t.dataset.view;
+      $('#scr-app').classList.remove('sb-open');
+      renderApp(); break;
+    case 'menu':
+      $('#scr-app').classList.toggle('sb-open'); break;
+    case 'sb-close':
+      $('#scr-app').classList.remove('sb-open'); break;
+    case 'lock':
+      lockNow(); break;
+    case 'add':
+      openEdit(null); break;
+    case 'open-detail':
+      openDetail(id); break;
+    case 'edit':
+      openEdit(S.detail); break;
+    case 'close-modal':
+      closeModal(); break;
+    case 'fav': {
+      const en = findEntry(id); if(!en) break;
+      en.favorite = !en.favorite;
+      await persist();
+      renderApp();
+      if(S.detail === id && !$('#modal-root').hidden) openDetail(id);
+      break;
+    }
+    case 'copy-user': { const en = findEntry(id); if(en) doCopy(en.username, '用户名'); break; }
+    case 'copy-pass': { const en = findEntry(id); if(en) doCopy(en.password, '密码', true); break; }
+    case 'copy-notes': { const en = findEntry(id); if(en) doCopy(en.notes, '备注'); break; }
+    case 'reveal': {
+      const span = document.getElementById(t.dataset.target);
+      const en = findEntry(S.detail);
+      if(!span || !en) break;
+      const showing = span.classList.toggle('revealed');
+      span.textContent = showing ? en.password : '•'.repeat(Math.min(String(en.password||'').length || 8, 16));
+      t.innerHTML = icon(showing ? 'eyeoff' : 'eye', 16);
+      break;
+    }
+    case 'eye': {
+      const input = document.getElementById(t.dataset.target);
+      if(!input) break;
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      t.innerHTML = icon(show ? 'eyeoff' : 'eye', 17);
+      break;
+    }
+    case 'delete':
+      confirmModal({ title:'删除账号', message:'确定要删除该账号记录吗？此操作不可撤销。', okText:'删除', danger:true, action:'del-confirm', dataId:S.detail });
+      break;
+    case 'del-confirm': {
+      S.vault.entries = S.vault.entries.filter(x => x.id !== id);
+      await persist();
+      closeModal();
+      renderApp();
+      toast('已删除');
+      break;
+    }
+    case 'gen-toggle': {
+      const box = t.closest('.frow')?.querySelector('.gen-embed');
+      if(!box) break;
+      box.hidden = !box.hidden;
+      if(!box.hidden){ box._gen.value = genPassword(box._gen); renderGenBox(box); }
+      break;
+    }
+    case 'gen-regen': {
+      const box = t.closest('.gen');
+      if(box){ box._gen.value = genPassword(box._gen); renderGenBox(box); }
+      break;
+    }
+    case 'gen-copy': {
+      const box = t.closest('.gen');
+      if(box) doCopy(box._gen.value, '密码', true);
+      break;
+    }
+    case 'gen-use': {
+      const box = t.closest('.gen');
+      const form = t.closest('form');
+      if(!box || !form) break;
+      const input = form.querySelector('[name=password]');
+      input.value = box._gen.value;
+      renderMeter(form.querySelector('.meter'), input.value);
+      box.hidden = true;
+      input.focus();
+      break;
+    }
+    case 'export': exportBackup(); break;
+    case 'import-click': $('#file-import').click(); break;
+    case 'import-confirm': {
+      if(!S.pendingImport) break;
+      await apiPutVault(S.pendingImport);
+      S.pendingImport = null;
+      lockNow('备份已导入，请输入该备份的主密码解锁');
+      break;
+    }
+    case 'chgpass': openChangeMaster(); break;
+    case 'wipe':
+      confirmModal({ title:'清除所有数据', message:'将删除本机密码库文件（data/vault.enc）与全部数据，且不可恢复。如果没有导出过备份，所有账号记录将永久丢失。', okText:'确认清除', danger:true, action:'wipe-confirm' });
+      break;
+    case 'wipe-confirm':
+      await apiDeleteVault();
+      location.reload();
+      break;
+  }
+  }catch(ex){ console.error(ex); toast('操作失败：' + (ex.message || ex), 'err'); }
+});
+
+/* ================= 事件：表单提交 ================= */
+document.addEventListener('submit', async e => {
+  e.preventDefault();
+  const form = e.target;
+  try{
+  if(form.dataset.form === 'setup'){
+    const pw = $('#su-pw').value, pw2 = $('#su-pw2').value;
+    if(pw.length < 8){ const el = $('#su-pw'); el.classList.add('shake'); setTimeout(()=>el.classList.remove('shake'),420); toast('主密码至少需要 8 位', 'warn'); return; }
+    if(pw !== pw2){ const el = $('#su-pw2'); el.classList.add('shake'); setTimeout(()=>el.classList.remove('shake'),420); toast('两次输入的密码不一致', 'warn'); return; }
+    if(!$('#su-ack').checked){ toast('请先勾选确认项', 'warn'); return; }
+    const btn = $('#su-btn');
+    busy(btn, true, '正在创建…');
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    S.key = await deriveKey(pw, salt, KDF_ITERS);
+    S.vault = { entries:[], settings:{ autoLock:5 }, meta:{ createdAt:Date.now() }, categories: CATS.map(c => ({ ...c })) };
+    S.blob = { kdf:{ name:'PBKDF2-SHA256', iterations:KDF_ITERS, salt:b64(salt) } };
+    await persist();
+    busy(btn, false);
+    enterApp();
+    toast('保险库已创建，数据保存在本机文件');
+  }
+  else if(form.dataset.form === 'lock'){
+    const pw = $('#lk-pw').value;
+    if(!pw) return;
+    const btn = $('#lk-btn'), err = $('#lk-err');
+    busy(btn, true, '解锁中…');
+    err.hidden = true;
+    try{
+      const key = await deriveKey(pw, unb64(S.blob.kdf.salt), S.blob.kdf.iterations);
+      S.vault = await decryptJSON(key, S.blob);
+      S.vault.categories ??= CATS.map(c => ({ ...c })); // 老数据迁移：初始化默认分类
+      S.key = key;
+      busy(btn, false);
+      $('#lk-pw').value = '';
+      $('#lk-note').hidden = true;
+      enterApp();
+    }catch{
+      busy(btn, false);
+      err.textContent = '主密码不正确，请重试';
+      err.hidden = false;
+      const el = $('#lk-pw');
+      el.value = ''; el.classList.add('shake'); setTimeout(()=>el.classList.remove('shake'),420);
+      el.focus();
+    }
+  }
+  else if(form.dataset.form === 'edit'){
+    const fd = new FormData(form);
+    const title = String(fd.get('title') || '').trim();
+    if(!title){ toast('请填写名称', 'warn'); form.querySelector('[name=title]').focus(); return; }
+    const now = Date.now();
+    const old = S.editing ? findEntry(S.editing) : null;
+    const entry = {
+      id: old ? old.id : uuid(),
+      title,
+      username: String(fd.get('username') || '').trim(),
+      password: String(fd.get('password') || ''),
+      url: String(fd.get('url') || '').trim(),
+      notes: String(fd.get('notes') || '').trim(),
+      category: fd.get('category') || 'other',
+      favorite: !!fd.get('favorite'),
+      createdAt: old ? old.createdAt : now,
+      updatedAt: now,
+    };
+    if(old){ Object.assign(old, entry); }
+    else S.vault.entries.push(entry);
+    const saveBtn = form.querySelector('[type=submit]');
+    busy(saveBtn, true, '保存中…');
+    await persist();
+    busy(saveBtn, false);
+    S.editDirty = false;
+    closeModal();
+    renderApp();
+    if(entry.password && passwordStrength(entry.password).score <= 1) toast('已保存 · 提示：密码强度较弱，建议更换');
+    else toast('已保存');
+  }
+  else if(form.dataset.form === 'chgpass'){
+    const old_ = $('#cp-old').value, nw = $('#cp-new').value, nw2 = $('#cp-new2').value;
+    const err = $('#cp-err');
+    const fail = m => { err.textContent = m; err.hidden = false; };
+    err.hidden = true;
+    if(nw.length < 8) return fail('新主密码至少需要 8 位');
+    if(nw !== nw2) return fail('两次输入的新密码不一致');
+    const btn = form.querySelector('[type=submit]');
+    busy(btn, true, '验证中…');
+    try{
+      const k = await deriveKey(old_, unb64(S.blob.kdf.salt), S.blob.kdf.iterations);
+      await decryptJSON(k, S.blob); // 验证旧密码
+    }catch{ busy(btn, false); return fail('当前主密码不正确'); }
+    busy(btn, true, '重新加密…');
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    S.blob.kdf.salt = b64(salt);
+    S.blob.kdf.iterations = KDF_ITERS;
+    S.key = await deriveKey(nw, salt, KDF_ITERS);
+    await persist();
+    busy(btn, false);
+    closeModal();
+    toast('主密码已更新，后续请使用新密码解锁');
+  }
+  }catch(ex){ console.error(ex); toast('操作失败：' + (ex.message || ex), 'err'); }
+});
+
+/* ================= 事件：输入 / 变更 ================= */
+document.addEventListener('input', e => {
+  const t = e.target;
+  if(t.matches('[data-strength]')){
+    renderMeter(document.getElementById(t.dataset.strength), t.value);
+    if(t.id === 'su-pw') renderChecklist(t.value);
+  }
+  if(t.id === 'search'){
+    S.q = t.value;
+    if(S.view !== 'list'){ S.view = 'list'; S.cat = 'all'; renderSidebar(); $('#page-title').textContent = pageTitle(); }
+    renderList($('#view .view-inner'));
+  }
+  if(t.matches('[data-gen-ctrl]') && t.type === 'range') updateGen(t);
+  if(t.closest('[data-form=edit]')) S.editDirty = true;
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if(t.matches('[data-gen-ctrl]') && t.type !== 'range') updateGen(t);
+  if(t.id === 'file-import') handleImportFile(t);
+});
+function updateGen(t){
+  const box = t.closest('.gen');
+  if(!box || !box._gen) return;
+  const st = box._gen, k = t.dataset.genCtrl;
+  if(k === 'length') st.length = +t.value;
+  else{
+    st[k] = t.checked;
+    if(['upper','lower','digits','symbols'].includes(k) && !st.upper && !st.lower && !st.digits && !st.symbols){
+      st[k] = true; t.checked = true;
+      toast('至少保留一种字符类型', 'warn');
+    }
+  }
+  st.value = genPassword(st);
+  renderGenBox(box);
+}
+
+/* ================= 事件：键盘 ================= */
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape'){
+    const openDD = document.querySelector('.dd.open');
+    if(openDD){ openDD.classList.remove('open'); return; }
+    if(!$('#modal-root').hidden){
+      if(S.editDirty){
+        if(Date.now() - S.lastEsc < 1800) closeModal();
+        else { S.lastEsc = Date.now(); toast('有未保存的修改，再按一次 Esc 放弃', 'warn'); }
+      } else closeModal();
+    } else $('#scr-app').classList.remove('sb-open');
+    return;
+  }
+  if((e.key === 'Enter' || (e.key === ' ' && !e.repeat)) && e.target.closest?.('[role=button][data-action],[role=option][data-action]') === e.target){
+    e.preventDefault(); e.target.click(); return;
+  }
+  if(e.key === '/' && !$('#scr-app').hidden){
+    const ae = document.activeElement;
+    if(!ae.matches('input,textarea,select') && $('#modal-root').hidden){
+      e.preventDefault();
+      $('#search').focus();
+    }
+  }
+});
+/* 弹窗内 Tab 焦点圈定 */
+$('#modal-root').addEventListener('keydown', e => {
+  if(e.key !== 'Tab') return;
+  const f = [...$('#modal-root').querySelectorAll('button,input,select,textarea,[tabindex]:not([tabindex="-1"])')].filter(el => !el.disabled && el.offsetParent !== null);
+  if(!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+  else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+});
+
+/* ================= 自动锁定 ================= */
+let lastMoveT = 0;
+function touchActivity(){ S.lastActivity = Date.now(); }
+document.addEventListener('mousemove', () => { const n = Date.now(); if(n - lastMoveT > 1000){ lastMoveT = n; touchActivity(); } }, { passive:true });
+['pointerdown','keydown','wheel','touchstart'].forEach(ev => document.addEventListener(ev, touchActivity, { passive:true }));
+setInterval(() => {
+  const m = S.vault?.settings?.autoLock ?? 5;
+  if(S.key && m > 0 && Date.now() - S.lastActivity > m * 60000)
+    lockNow('长时间无操作，已自动锁定');
+}, 5000);
+
+/* ================= 启动：从本地服务读取密文文件 ================= */
+(async function boot(){
+  renderChecklist('');
+  try{
+    const r = await fetch('/api/meta');
+    if(r.ok) S.meta = await r.json();
+  }catch{}
+  let blob = null;
+  try{ blob = await apiGetVault(); }catch{}
+  if(!blob){
+    showScreen('scr-setup');
+    setTimeout(() => $('#su-pw').focus(), 80);
+    return;
+  }
+  S.blob = blob;
+  showScreen('scr-lock');
+  setTimeout(() => $('#lk-pw').focus(), 80);
+})().catch(err => {
+  console.error(err);
+  document.body.innerHTML = `<div style="display:grid;place-items:center;height:100vh;color:#DC2626;font-family:sans-serif;text-align:center;padding:20px">
+    <div><h2>无法连接本地服务</h2><p style="color:#5D6B85;margin-top:8px">请先运行 start.bat 启动 MemKey 服务，再刷新此页面。</p></div></div>`;
+});
+</script>
+</body>
+</html>
