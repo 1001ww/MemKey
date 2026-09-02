@@ -24,11 +24,50 @@
 
 ## 🚀 快速开始
 
-### 环境要求
+### 第一步：安装 Node.js
 
-- [Node.js](https://nodejs.org/) ≥ 18（无需安装任何 npm 依赖）
+MemKey 唯一的环境要求是 Node.js（≥ 18，无需安装任何 npm 依赖）。
 
-### 三步启动
+**Windows**
+
+1. 打开官网下载页：<https://nodejs.org/en/download>
+2. 选择 **LTS（长期支持版）** → Windows Installer（.msi，64 位）
+3. 双击运行安装包，全部选项保持默认，一路「下一步」完成安装
+4. 验证：按 `Win + R` 输入 `cmd` 回车，在黑窗口输入以下命令并回车，显示 `v18.x.x` 或更高即成功：
+
+```bash
+node -v
+```
+
+> 提示「不是内部或外部命令」？重启电脑让环境变量生效，若仍不行重新运行安装包选 Repair。
+
+**macOS**
+
+- 方式一（推荐）：终端执行 `brew install node@22`（需先装 [Homebrew](https://brew.sh/)）
+- 方式二：官网下载 .pkg 安装包，双击安装
+
+**Linux（Ubuntu / Debian）**
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y node
+```
+
+### 第二步：启动
+
+**方式 A · 下载 zip（适合不用 git 的用户）**
+
+从 [Releases](https://github.com/1001ww/MemKey/releases) 下载最新版 Source code (zip)，解压到任意目录后：
+
+- Windows：双击 `start.bat`（自动启动并打开浏览器）
+- macOS / Linux：
+
+```bash
+cd MemKey
+node server.js
+```
+
+**方式 B · git clone**
 
 ```bash
 git clone https://github.com/1001ww/MemKey.git
