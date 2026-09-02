@@ -477,7 +477,7 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
         <path d="M38 42v-5a10 10 0 0 1 20 0v5" stroke="#2F5FE8" stroke-width="6"/>
       </svg>
       <span class="bname">Mem<b>Key</b></span>
-      <span class="bver">v1.2.2</span>
+      <span class="bver">v1.2.3</span>
     </div>
     <nav id="sb-nav"></nav>
     <div class="sb-bottom">
@@ -1019,7 +1019,7 @@ function renderSet(container){
     </section>
     <section class="card row-in">
       <h3>${icon('lock',16)} 关于</h3>
-      <p class="about">MemKey v1.2.2 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 install-startup.bat 安装。</p>
+      <p class="about">MemKey v1.2.3 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 install-startup.bat 安装。</p>
     </section>
     <section class="card card-danger row-in">
       <h3>${icon('warn',16)} 危险操作</h3>
@@ -1067,7 +1067,6 @@ function openDetail(id){
     <div class="m-foot">
       <button class="btn btn-danger" data-action="delete">${icon('trash',14)} 删除</button>
       <div class="grow"></div>
-      <button class="btn" data-action="close-modal">关闭</button>
       <button class="btn btn-primary" data-action="edit">${icon('pencil',14)} 编辑</button>
     </div>
   </div>`);
@@ -1116,7 +1115,6 @@ function openEdit(id){
     </div>
     <div class="m-foot">
       <div class="grow"></div>
-      <button type="button" class="btn" data-action="close-modal">取消</button>
       <button type="submit" class="btn btn-primary">${icon('check',14)} 保存</button>
     </div>
   </form>`);
