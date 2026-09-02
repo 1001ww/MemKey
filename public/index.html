@@ -204,7 +204,7 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
 .nav-item.active{ color:var(--blue); background:var(--blue-soft); border-color:var(--blue-line) }
 .nav-item .cnt{ margin-left:auto; font-size:12px; color:var(--faint); font-variant-numeric:tabular-nums }
 .nav-item.active .cnt{ color:var(--blue) }
-.nav-item > span:not(.cnt){ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.nav-item > span:not(.cnt):not(.badge){ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 .nav-sec{ margin:15px 10px 6px; font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600 }
 .sb-bottom{ margin-top:auto; border-top:1px solid var(--line); padding-top:10px; display:grid; gap:2px }
 .nav-lock:hover{ color:var(--red); background:var(--red-soft) }
@@ -477,7 +477,7 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
         <path d="M38 42v-5a10 10 0 0 1 20 0v5" stroke="#2F5FE8" stroke-width="6"/>
       </svg>
       <span class="bname">Mem<b>Key</b></span>
-      <span class="bver">v1.2.3</span>
+      <span class="bver">v1.2.4</span>
     </div>
     <nav id="sb-nav"></nav>
     <div class="sb-bottom">
@@ -698,6 +698,8 @@ function closeModal(){
   const bd = root.firstElementChild;
   if(!bd) return;
   S.editDirty = false; S.detail = null; S.editing = null;
+  // 清除残留文档选区：弹窗 DOM 移除后焦点回落 BODY，行内残留的折叠选区会在列表文本上渲染闪烁插入符
+  try{ document.getSelection().removeAllRanges(); }catch{}
   bd.classList.remove('show');
   setTimeout(() => { root.innerHTML = ''; root.hidden = true; }, 190);
 }
@@ -1019,7 +1021,7 @@ function renderSet(container){
     </section>
     <section class="card row-in">
       <h3>${icon('lock',16)} 关于</h3>
-      <p class="about">MemKey v1.2.3 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 install-startup.bat 安装。</p>
+      <p class="about">MemKey v1.2.4 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 install-startup.bat 安装。</p>
     </section>
     <section class="card card-danger row-in">
       <h3>${icon('warn',16)} 危险操作</h3>
