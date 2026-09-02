@@ -204,6 +204,7 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
 .nav-item.active{ color:var(--blue); background:var(--blue-soft); border-color:var(--blue-line) }
 .nav-item .cnt{ margin-left:auto; font-size:12px; color:var(--faint); font-variant-numeric:tabular-nums }
 .nav-item.active .cnt{ color:var(--blue) }
+.nav-item span:not(.cnt){ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 .nav-sec{ margin:15px 10px 6px; font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600 }
 .sb-bottom{ margin-top:auto; border-top:1px solid var(--line); padding-top:10px; display:grid; gap:2px }
 .nav-lock:hover{ color:var(--red); background:var(--red-soft) }
@@ -287,6 +288,16 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
 }
 .icon-pick:hover{ border-color:var(--line-strong); color:var(--text) }
 .icon-pick.sel{ background:var(--blue-soft); border-color:var(--blue-line); color:var(--blue) }
+
+/* 标签编辑器 */
+.tag-editor{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:5px 8px; background:var(--card); border:1px solid var(--line-strong); border-radius:10px; min-height:40px; cursor:text; transition:border-color .15s,box-shadow .15s }
+.tag-editor:focus-within{ border-color:var(--blue); box-shadow:0 0 0 3px rgba(47,95,232,.13) }
+.tag-chip{ display:inline-flex; align-items:center; gap:2px; padding:2px 4px 2px 10px; background:var(--blue-soft); border:1px solid var(--blue-line); color:var(--blue); border-radius:100px; font-size:12.5px; max-width:180px }
+.tag-chip > span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.tag-chip button{ border:0; background:none; color:inherit; cursor:pointer; font-size:15px; line-height:1; padding:2px 5px; opacity:.65 }
+.tag-chip button:hover{ opacity:1 }
+.tag-editor input{ flex:1; min-width:110px; width:auto; height:28px; border:0; background:none; padding:0; box-shadow:none !important; outline:none !important }
+.row-tags{ font-size:11.5px; color:var(--faint); max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:none }
 
 .stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:18px }
 .stat{ background:var(--card); border:1px solid var(--line); border-radius:var(--rad); padding:16px 18px; box-shadow:var(--shadow-card) }
@@ -466,7 +477,7 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
         <path d="M38 42v-5a10 10 0 0 1 20 0v5" stroke="#2F5FE8" stroke-width="6"/>
       </svg>
       <span class="bname">Mem<b>Key</b></span>
-      <span class="bver">v1.1.4</span>
+      <span class="bver">v1.2.0</span>
     </div>
     <nav id="sb-nav"></nav>
     <div class="sb-bottom">
@@ -513,6 +524,7 @@ const CATS = [
 ];
 const ICON_POOL = ['folder','star','at','briefcase','landmark','bag','code','tag','globe','user','shield','lock','sparkles','file','clock'];
 const getCats = () => S.vault?.categories || CATS;
+const allTags = () => [...new Set((S.vault?.entries || []).flatMap(e => e.tags || []))].sort((a,b) => a.localeCompare(b,'zh'));
 const enc = new TextEncoder(), dec = new TextDecoder();
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
@@ -633,7 +645,7 @@ const REQS = [
 /* ================= 状态 ================= */
 const S = {
   key: null, vault: null, blob: null, meta: null,
-  view: 'list', cat: 'all', q: '',
+  view: 'list', cat: 'all', tag: null, q: '',
   detail: null, editing: null,
   pendingImport: null,
   lastActivity: Date.now(),
@@ -735,7 +747,7 @@ function showScreen(id){
 function lockNow(note){
   try{ navigator.clipboard?.writeText(''); }catch{}
   clearTimeout(S.clipTimer);
-  S.key = null; S.vault = null; S.view = 'list'; S.cat = 'all'; S.q = '';
+  S.key = null; S.vault = null; S.view = 'list'; S.cat = 'all'; S.tag = null; S.q = '';
   S.detail = null; S.editing = null; S.editDirty = false;
   closeModal();
   $('#modal-root').hidden = true; $('#modal-root').innerHTML = '';
@@ -770,6 +782,7 @@ function renderSidebar(){
     item(S.view==='list' && S.cat==='fav', 'star', '收藏', `<span class="cnt">${es.filter(e=>e.favorite).length}</span>`, `data-action="nav-cat" data-cat="fav"`) +
     `<div class="nav-sec">分类</div>` +
     getCats().map(c => item(S.view==='list' && S.cat===c.id, c.icon, c.label, `<span class="cnt">${cnt(c.id)}</span>`, `data-action="nav-cat" data-cat="${esc(c.id)}"`)).join('') +
+    (() => { const tags = allTags(); return tags.length ? `<div class="nav-sec">标签</div>` + tags.map(t => item(S.view==='list' && S.tag===t, 'tag', '#' + t, `<span class="cnt">${es.filter(en => (en.tags||[]).includes(t)).length}</span>`, `data-action="nav-tag" data-tag="${esc(t)}"`)).join('') : ''; })() +
     `<div class="nav-sec">工具</div>` +
     item(S.view==='security', 'shield', '安全报告', issues ? `<span class="badge">${issues}</span>` : '', `data-action="nav-view" data-view="security"`) +
     item(S.view==='generator', 'sparkles', '密码生成器', '', `data-action="nav-view" data-view="generator"`);
@@ -781,6 +794,7 @@ function renderSidebar(){
 /* ================= 渲染：标题 & 视图 ================= */
 function pageTitle(){
   if(S.view === 'list'){
+    if(S.tag) return '# ' + S.tag;
     if(S.cat === 'all') return '全部账号';
     if(S.cat === 'fav') return '收藏';
     return getCats().find(c => c.id === S.cat)?.label || '账号';
@@ -804,6 +818,7 @@ const rowHTML = (e, i) => {
       <div class="row-title">${esc(e.title)}</div>
       <div class="row-sub">${esc(e.username || '—')}</div>
     </div>
+    ${(e.tags && e.tags.length) ? `<span class="row-tags" title="${esc(e.tags.join('、'))}">${e.tags.map(t => '#' + esc(t)).join(' ')}</span>` : ''}
     <span class="strength-dot" style="background:${st.color}" title="密码强度：${st.label}"></span>
     <div class="row-actions">
       <button class="icon-btn" data-action="copy-user" data-id="${esc(e.id)}" title="复制用户名" aria-label="复制用户名">${icon('user',15)}</button>
@@ -817,7 +832,8 @@ function renderList(container){
   let items = S.vault.entries.slice().sort((a,b) => b.updatedAt - a.updatedAt);
   if(S.cat === 'fav') items = items.filter(e => e.favorite);
   else if(S.cat !== 'all') items = items.filter(e => (e.category || 'other') === S.cat);
-  if(q) items = items.filter(e => [e.title, e.username, e.url, e.notes].some(v => String(v||'').toLowerCase().includes(q)));
+  if(S.tag) items = items.filter(e => (e.tags || []).includes(S.tag));
+  if(q) items = items.filter(e => [e.title, e.username, e.url, e.notes, ...(e.tags||[])].some(v => String(v||'').toLowerCase().includes(q)));
   if(!items.length){
     container.innerHTML = S.vault.entries.length
       ? `<div class="empty row-in">
@@ -1001,7 +1017,7 @@ function renderSet(container){
     </section>
     <section class="card row-in">
       <h3>${icon('lock',16)} 关于</h3>
-      <p class="about">MemKey v1.1.4 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 install-startup.bat 安装。</p>
+      <p class="about">MemKey v1.2.0 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 install-startup.bat 安装。</p>
     </section>
     <section class="card card-danger row-in">
       <h3>${icon('warn',16)} 危险操作</h3>
@@ -1039,6 +1055,7 @@ function openDetail(id){
         <button class="icon-btn" data-action="copy-pass" data-id="${esc(e.id)}" aria-label="复制密码">${icon('copy',16)}</button></div>
       ${e.notes ? `<div class="dfield"><span class="dl">备注</span><span class="dv notes">${esc(e.notes)}</span>
         <button class="icon-btn" data-action="copy-notes" data-id="${esc(e.id)}" aria-label="复制备注">${icon('copy',16)}</button></div>` : ''}
+      ${(e.tags && e.tags.length) ? `<div class="dfield"><span class="dl">标签</span><span class="dv" style="display:flex;gap:6px;flex-wrap:wrap;white-space:normal;overflow:visible">${e.tags.map(t => `<span class="chip">#${esc(t)}</span>`).join('')}</span></div>` : ''}
       <div class="m-meta">
         <span class="chip">${esc(catLabel)}</span>
         <span class="m-time">${icon('clock',13)} 更新于 ${fmtRel(e.updatedAt)}</span>
@@ -1080,6 +1097,13 @@ function openEdit(id){
         ${genHTML(true)}
       </div>
       <div class="frow"><label class="flabel">备注</label><textarea name="notes" maxlength="2000" placeholder="安全问题、恢复代码、备注…">${v('notes')}</textarea></div>
+      <div class="frow"><label class="flabel">标签</label>
+        <div class="tag-editor" id="tag-editor" data-action="tag-focus">
+          ${(e && e.tags ? e.tags : []).map(t => tagChip(t)).join('')}
+          <input type="text" id="tag-input" list="tag-list" maxlength="20" placeholder="输入标签后回车添加，如：项目A" autocomplete="off">
+        </div>
+        <datalist id="tag-list">${allTags().map(t => `<option value="${esc(t)}">`).join('')}</datalist>
+      </div>
       <div class="fgrid">
         <div class="frow"><label class="flabel">分类</label>
           ${ddHTML('category', getCats().map(c => ({ v:c.id, label:c.label, icon:c.icon })), e ? (e.category || 'other') : (getCats().some(c => c.id === S.cat) ? S.cat : 'other'))}</div>
@@ -1133,6 +1157,21 @@ function ddHTML(name, options, curVal){
       </div>`).join('')}
     </div>
   </div>`;
+}
+
+/* ================= 标签编辑 ================= */
+const tagChip = t => `<span class="tag-chip" data-tag="${esc(t)}"><span>${esc(t)}</span><button type="button" data-action="tag-rm" aria-label="移除标签 ${esc(t)}">×</button></span>`;
+function addTagFromInput(){
+  const input = document.getElementById('tag-input');
+  if(!input) return;
+  const v = input.value.replace(/[,，]/g, '').trim();
+  input.value = '';
+  if(!v) return;
+  const editor = document.getElementById('tag-editor');
+  const cur = [...editor.querySelectorAll('.tag-chip')].map(c => c.dataset.tag);
+  if(cur.includes(v)) return;
+  if(cur.length >= 10){ toast('最多添加 10 个标签', 'warn'); return; }
+  input.insertAdjacentHTML('beforebegin', tagChip(v));
 }
 
 /* ================= 强度条渲染 ================= */
@@ -1291,11 +1330,24 @@ document.addEventListener('click', async e => {
       break;
     }
     case 'nav-cat':
-      S.view = 'list'; S.cat = t.dataset.cat;
+      S.view = 'list'; S.cat = t.dataset.cat; S.tag = null;
       $('#scr-app').classList.remove('sb-open');
       renderApp(); break;
+    case 'nav-tag':
+      S.view = 'list'; S.tag = t.dataset.tag; S.cat = 'all';
+      $('#scr-app').classList.remove('sb-open');
+      renderApp(); break;
+    case 'tag-rm': {
+      t.closest('.tag-chip')?.remove();
+      break;
+    }
+    case 'tag-focus': {
+      const inp = document.getElementById('tag-input');
+      if(inp && !e.target.closest('.tag-chip')) inp.focus();
+      break;
+    }
     case 'nav-view':
-      S.view = t.dataset.view;
+      S.view = t.dataset.view; S.tag = null;
       $('#scr-app').classList.remove('sb-open');
       renderApp(); break;
     case 'menu':
@@ -1460,6 +1512,7 @@ document.addEventListener('submit', async e => {
       notes: String(fd.get('notes') || '').trim(),
       category: fd.get('category') || 'other',
       favorite: !!fd.get('favorite'),
+      tags: [...form.querySelectorAll('#tag-editor .tag-chip')].map(el => el.dataset.tag),
       createdAt: old ? old.createdAt : now,
       updatedAt: now,
     };
@@ -1518,7 +1571,7 @@ document.addEventListener('input', e => {
   }
   if(t.id === 'search'){
     S.q = t.value;
-    if(S.view !== 'list'){ S.view = 'list'; S.cat = 'all'; renderSidebar(); $('#page-title').textContent = pageTitle(); }
+    if(S.view !== 'list'){ S.view = 'list'; S.cat = 'all'; S.tag = null; renderSidebar(); $('#page-title').textContent = pageTitle(); }
     renderList($('#view .view-inner'));
   }
   if(t.matches('[data-gen-ctrl]') && t.type === 'range') updateGen(t);
@@ -1527,6 +1580,7 @@ document.addEventListener('input', e => {
 document.addEventListener('change', e => {
   const t = e.target;
   if(t.matches('[data-gen-ctrl]') && t.type !== 'range') updateGen(t);
+  if(t.id === 'tag-input' && t.value.trim()) addTagFromInput();
   if(t.id === 'file-import') handleImportFile(t);
 });
 function updateGen(t){
@@ -1596,6 +1650,11 @@ document.addEventListener('drop', async e => {
 
 /* ================= 事件：键盘 ================= */
 document.addEventListener('keydown', e => {
+  if(e.target.id === 'tag-input' && (e.key === 'Enter' || e.key === ',' || e.key === '，')){
+    e.preventDefault();
+    addTagFromInput();
+    return;
+  }
   if(e.key === 'Escape'){
     const openDD = document.querySelector('.dd.open');
     if(openDD){ openDD.classList.remove('open'); return; }
