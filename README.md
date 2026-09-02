@@ -22,16 +22,6 @@
 | 💾 备份迁移 | 加密备份导出/导入，或直接拷贝整个文件夹到 U 盘 |
 | 🖥 本地服务 | 零依赖 Node 服务，仅监听 `127.0.0.1`，支持 Windows 开机自启 |
 
-## 📸 界面预览
-
-| 主界面（浅色蓝白） | 新增账号 + 内嵌密码生成器 |
-|:---:|:---:|
-| ![主界面](docs/main-list.png) | ![新增账号](docs/add-account-generator.png) |
-
-| 安全报告 | 分类管理（设置页） |
-|:---:|:---:|
-| ![安全报告](docs/security-report.png) | ![分类管理](docs/category-management.png) |
-
 ## 🚀 快速开始
 
 ### 环境要求
@@ -105,7 +95,6 @@ MemKey/
 │   └── index.html         # 前端界面（全部加解密逻辑在此）
 ├── data/
 │   └── vault.enc          # 加密密码库（自动创建，已排除出 git）
-├── docs/                  # 文档与截图
 ├── start.bat              # Windows 一键启动
 ├── install-startup.bat    # 安装开机自启
 └── uninstall-startup.bat  # 卸载开机自启
