@@ -137,7 +137,7 @@ input[type=range]::-webkit-slider-thumb{
 input[type=range]::-moz-range-thumb{ width:14px; height:14px; border-radius:50%; background:var(--blue); border:2px solid #fff; box-shadow:0 1px 4px rgba(27,37,64,.3); cursor:pointer }
 
 /* 微章 / 芯片 */
-.badge{ min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--red); color:#fff; font-size:11px; font-weight:600; display:inline-grid; place-items:center; margin-left:auto }
+.badge{ min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--red); color:#fff; font-size:11px; font-weight:600; display:inline-grid; place-items:center; margin-left:auto; flex:none }
 .chip{ font-size:12px; padding:3px 10px; border-radius:100px; background:var(--soft); color:var(--muted); border:1px solid var(--line); white-space:nowrap }
 kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); border-bottom-width:2px; border-radius:5px; padding:1px 6px; background:var(--card); flex:none; transition:opacity .15s }
 
@@ -204,7 +204,7 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
 .nav-item.active{ color:var(--blue); background:var(--blue-soft); border-color:var(--blue-line) }
 .nav-item .cnt{ margin-left:auto; font-size:12px; color:var(--faint); font-variant-numeric:tabular-nums }
 .nav-item.active .cnt{ color:var(--blue) }
-.nav-item span:not(.cnt){ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.nav-item > span:not(.cnt){ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 .nav-sec{ margin:15px 10px 6px; font-size:10.5px; letter-spacing:.16em; color:var(--faint); font-weight:600 }
 .sb-bottom{ margin-top:auto; border-top:1px solid var(--line); padding-top:10px; display:grid; gap:2px }
 .nav-lock:hover{ color:var(--red); background:var(--red-soft) }
@@ -233,10 +233,10 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
 .entry{
   display:flex; align-items:center; gap:13px; padding:10px 14px; margin-bottom:8px;
   background:var(--card); border:1px solid var(--line); border-radius:var(--rad);
-  cursor:pointer; box-shadow:var(--shadow-card);
-  transition:box-shadow .14s,border-color .14s,transform .1s;
+  cursor:default; box-shadow:var(--shadow-card);
+  transition:box-shadow .14s,border-color .14s;
 }
-.entry:hover{ border-color:var(--line-strong); transform:translateY(-1px); box-shadow:0 2px 4px rgba(27,37,64,.05), 0 14px 32px -16px rgba(27,37,64,.2) }
+.entry:hover{ border-color:var(--line-strong); box-shadow:0 2px 4px rgba(27,37,64,.05), 0 14px 32px -16px rgba(27,37,64,.2) }
 .avatar{
   width:38px; height:38px; border-radius:10px; display:grid; place-items:center;
   font-weight:600; font-size:15.5px; flex:none;
@@ -311,7 +311,7 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
 .reuse-group .rg-t{ font-size:12.5px; color:var(--amber); margin-bottom:8px; display:flex; gap:7px; align-items:center }
 
 /* 生成器 */
-.gen-wrap{ max-width:640px }
+.gen-wrap{ max-width:640px; margin:0 auto }
 .gen-card{ background:var(--card); border:1px solid var(--line); border-radius:var(--rad); padding:20px; box-shadow:var(--shadow-card) }
 .gen-display{
   display:flex; align-items:center; gap:8px; background:var(--soft); border:1px solid var(--line-strong);
@@ -477,7 +477,7 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
         <path d="M38 42v-5a10 10 0 0 1 20 0v5" stroke="#2F5FE8" stroke-width="6"/>
       </svg>
       <span class="bname">Mem<b>Key</b></span>
-      <span class="bver">v1.2.1</span>
+      <span class="bver">v1.2.2</span>
     </div>
     <nav id="sb-nav"></nav>
     <div class="sb-bottom">
@@ -555,6 +555,8 @@ const I = {
   sliders:'<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
   lock:'<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   plus:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  search:'<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  x:'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
   copy:'<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   eye:'<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
   eyeoff:'<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>',
@@ -812,7 +814,7 @@ function renderApp(){
 const rowHTML = (e, i) => {
   const h = hue(e.title || '?');
   const st = passwordStrength(e.password);
-  return `<div class="entry row-in" style="animation-delay:${Math.min(i*18,220)}ms" data-action="open-detail" data-id="${esc(e.id)}" role="button" tabindex="0" aria-label="${esc(e.title)}">
+  return `<div class="entry row-in" style="animation-delay:${Math.min(i*18,220)}ms" data-action="open-detail" data-id="${esc(e.id)}" aria-label="${esc(e.title)}">
     <div class="avatar" style="background:hsl(${h},75%,93%);color:hsl(${h},52%,38%);border:1px solid hsl(${h},50%,88%)">${esc(String(e.title||'?').trim().charAt(0).toUpperCase())}</div>
     <div class="row-main">
       <div class="row-title">${esc(e.title)}</div>
@@ -1017,7 +1019,7 @@ function renderSet(container){
     </section>
     <section class="card row-in">
       <h3>${icon('lock',16)} 关于</h3>
-      <p class="about">MemKey v1.2.1 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 install-startup.bat 安装。</p>
+      <p class="about">MemKey v1.2.2 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 install-startup.bat 安装。</p>
     </section>
     <section class="card card-danger row-in">
       <h3>${icon('warn',16)} 危险操作</h3>
@@ -1673,7 +1675,7 @@ document.addEventListener('keydown', e => {
     } else $('#scr-app').classList.remove('sb-open');
     return;
   }
-  if((e.key === 'Enter' || (e.key === ' ' && !e.repeat)) && e.target.closest?.('[role=button][data-action],[role=option][data-action]') === e.target){
+  if((e.key === 'Enter' || (e.key === ' ' && !e.repeat)) && e.target.closest?.('[role=button][data-action],[role=option][data-action]') === e.target && e.target.tagName !== 'FORM'){
     e.preventDefault(); e.target.click(); return;
   }
   if(e.key === '/' && !$('#scr-app').hidden){
