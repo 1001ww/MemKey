@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%20%7C%20macOS%20%7C%20Linux-555)
 ![Dependencies](https://img.shields.io/badge/%E4%BE%9D%E8%B5%96-0%20%E9%9B%B6-brightgreen)
 
-**当前版本：v1.2.5**
+**当前版本：v1.2.6**
 
 **纯本地的账号密码管理器** —— 零依赖 Node 服务 + 浏览器端加密，数据以密文形式保存在本机文件中，主密码永不上传。
 

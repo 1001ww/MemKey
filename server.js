@@ -93,7 +93,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/meta') {
       return sendJSON(res, 200, {
         app: 'MemKey',
-        version: '1.2.5',
+        version: '1.2.6',
         vaultFile: VAULT_FILE,
         url: `http://localhost:${PORT}`,
       });
