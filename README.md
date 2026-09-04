@@ -59,7 +59,7 @@ sudo apt-get install -y node
 
 从 [Releases](https://github.com/1001ww/MemKey/releases) 下载最新版 Source code (zip)，解压到任意目录后：
 
-- Windows：双击 `start.bat`（自动启动并打开浏览器）
+- Windows：双击 `启动MemKey.bat`（服务转入后台运行，浏览器会自动打开）
 - macOS / Linux：
 
 ```bash
@@ -77,13 +77,13 @@ node server.js
 
 打开浏览器访问 **http://localhost:8420**，首次使用设置主密码即完成创建。
 
-> Windows 用户也可以直接双击 `start.bat`（启动后自动打开浏览器）。
+> Windows 用户双击 `启动MemKey.bat` 后，服务会在后台持续运行；关闭提示窗口不会停止服务。
 
 ### 开机自启（Windows）
 
-双击运行一次 `install-startup.bat` 即可，之后开机服务在后台静默运行，浏览器访问 `localhost:8420` 使用。
+双击运行一次 `安装开机自启.bat` 即可，之后登录 Windows 时服务会在后台静默运行，浏览器访问 `localhost:8420` 使用。
 
-- 卸载自启：运行 `uninstall-startup.bat`
+- 卸载自启：运行 `卸载开机自启.bat`
 - macOS / Linux 用户可用 systemd / launchd 指向 `node /path/to/MemKey/server.js`
 
 ## 📖 日常使用
@@ -134,9 +134,10 @@ MemKey/
 │   └── index.html         # 前端界面（全部加解密逻辑在此）
 ├── data/
 │   └── vault.enc          # 加密密码库（自动创建，已排除出 git）
-├── start.bat              # Windows 一键启动
-├── install-startup.bat    # 安装开机自启
-└── uninstall-startup.bat  # 卸载开机自启
+├── 启动MemKey.bat         # Windows 一键后台启动
+├── 安装开机自启.bat       # 安装开机自启
+├── 卸载开机自启.bat       # 卸载开机自启
+└── memkey-launch.vbs      # 内部后台启动器
 ```
 
 ## ❓ FAQ

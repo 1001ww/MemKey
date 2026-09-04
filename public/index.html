@@ -1021,7 +1021,7 @@ function renderSet(container){
     </section>
     <section class="card row-in">
       <h3>${icon('lock',16)} 关于</h3>
-      <p class="about">MemKey v1.2.4 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 install-startup.bat 安装。</p>
+      <p class="about">MemKey v1.2.4 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 安装开机自启.bat 安装。</p>
     </section>
     <section class="card card-danger row-in">
       <h3>${icon('warn',16)} 危险操作</h3>
@@ -1727,7 +1727,7 @@ setInterval(() => {
 })().catch(err => {
   console.error(err);
   document.body.innerHTML = `<div style="display:grid;place-items:center;height:100vh;color:#DC2626;font-family:sans-serif;text-align:center;padding:20px">
-    <div><h2>无法连接本地服务</h2><p style="color:#5D6B85;margin-top:8px">请先运行 start.bat 启动 MemKey 服务，再刷新此页面。</p></div></div>`;
+    <div><h2>无法连接本地服务</h2><p style="color:#5D6B85;margin-top:8px">请先运行 启动MemKey.bat 启动 MemKey 服务，再刷新此页面。</p></div></div>`;
 });
 </script>
 </body>

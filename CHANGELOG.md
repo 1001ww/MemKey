@@ -109,7 +109,7 @@
 
 - 新增零依赖 Node 本地服务 `server.js`（静态托管 + 密文文件 API，仅监听 127.0.0.1）
 
-- 配套 `start.bat` / `install-startup.bat` / `uninstall-startup.bat`
+- 配套 `启动MemKey.bat` / `安装开机自启.bat` / `卸载开机自启.bat`
 
 ### 变更
 
