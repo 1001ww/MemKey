@@ -5,6 +5,8 @@
 ![Platform](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%20%7C%20macOS%20%7C%20Linux-555)
 ![Dependencies](https://img.shields.io/badge/%E4%BE%9D%E8%B5%96-0%20%E9%9B%B6-brightgreen)
 
+**当前版本：v1.2.5**
+
 **纯本地的账号密码管理器** —— 零依赖 Node 服务 + 浏览器端加密，数据以密文形式保存在本机文件中，主密码永不上传。
 
 > 调研了 1Password / Bitwarden / KeePass / LastPass 等主流密码管理器后自建的轻量方案：
@@ -53,21 +55,24 @@ curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y node
 ```
 
-### 第二步：启动
+### 第二步：启动 MemKey
 
-**方式 A · 下载 zip（适合不用 git 的用户）**
+**Windows（推荐）**
 
-从 [Releases](https://github.com/1001ww/MemKey/releases) 下载最新版 Source code (zip)，解压到任意目录后：
+1. 从 [Releases](https://github.com/1001ww/MemKey/releases) 下载最新版 Source code (zip)，解压整个 `MemKey` 文件夹到任意位置
+2. 打开该文件夹，双击 `启动MemKey.bat`
+3. 出现「MemKey 服务正在后台启动」提示后可直接关闭提示窗口；服务会继续在后台运行，浏览器会自动打开
 
-- Windows：双击 `启动MemKey.bat`（服务转入后台运行，浏览器会自动打开）
-- macOS / Linux：
+> 请保留文件夹内的全部文件，尤其不要单独移动 `启动MemKey.bat` 或 `memkey-launch.vbs`。若提示找不到 Node.js，按上一步安装 Node.js 后重启 Windows，再重新双击启动文件。
+
+**macOS / Linux**
 
 ```bash
 cd MemKey
 node server.js
 ```
 
-**方式 B · git clone**
+**使用 Git 下载（可选）**
 
 ```bash
 git clone https://github.com/1001ww/MemKey.git
@@ -77,13 +82,12 @@ node server.js
 
 打开浏览器访问 **http://localhost:8420**，首次使用设置主密码即完成创建。
 
-> Windows 用户双击 `启动MemKey.bat` 后，服务会在后台持续运行；关闭提示窗口不会停止服务。
-
 ### 开机自启（Windows）
 
-双击运行一次 `安装开机自启.bat` 即可，之后登录 Windows 时服务会在后台静默运行，浏览器访问 `localhost:8420` 使用。
+需要每次登录 Windows 后自动运行时，在 MemKey 文件夹中双击一次 `安装开机自启.bat`。之后服务会在后台静默启动，不会弹出浏览器或提示窗口；需要使用时访问 **http://localhost:8420** 即可。
 
-- 卸载自启：运行 `卸载开机自启.bat`
+- 取消开机自启：双击 `卸载开机自启.bat`
+- 手动启动服务：双击 `启动MemKey.bat`，关闭其提示窗口不会停止服务
 - macOS / Linux 用户可用 systemd / launchd 指向 `node /path/to/MemKey/server.js`
 
 ## 📖 日常使用
