@@ -373,6 +373,9 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
 .dfield .dv{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 .dfield .dv.notes{ white-space:pre-wrap; word-break:break-word; max-height:130px; overflow-y:auto; line-height:1.6 }
 .dfield .dv.mono{ font-size:14px; letter-spacing:.03em }
+.m-attr{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+.chip-cat{ display:inline-flex; gap:5px; align-items:center }
+.dtag{ font-size:12px; color:var(--muted); overflow-wrap:anywhere }
 .m-meta{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding-top:4px }
 .m-time{ font-size:12px; color:var(--faint); display:inline-flex; gap:5px; align-items:center }
 .strength-tag{ font-size:12px; margin-left:auto }
@@ -488,7 +491,7 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
         <path d="M38 42v-5a10 10 0 0 1 20 0v5" stroke="#2F5FE8" stroke-width="6"/>
       </svg>
       <span class="bname">Mem<b>Key</b></span>
-      <span class="bver">v1.2.6</span>
+      <span class="bver"></span>
     </div>
     <nav id="sb-nav"></nav>
     <div class="sb-bottom">
@@ -538,7 +541,7 @@ const getCats = () => S.vault?.categories || CATS;
 const allTags = () => [...new Set((S.vault?.entries || []).flatMap(e => e.tags || []))].sort((a,b) => a.localeCompare(b,'zh'));
 const enc = new TextEncoder(), dec = new TextDecoder();
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const b64 = buf => { const u = new Uint8Array(buf); let s = ''; for(let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); };
 const unb64 = s => { const bin = atob(s), u = new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return u; };
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxxyxxx'.replace(/x|y/g, c => { const r = crypto.getRandomValues(new Uint8Array(1))[0]%16; return (c==='x'?r:(r&3|8)).toString(16); }) + Date.now().toString(16));
 const hue = str => { let h = 0; for(const c of String(str||'?')) h = (h*31 + c.charCodeAt(0)) >>> 0; return h % 360; };
@@ -775,10 +778,19 @@ function lockNow(note){
 }
 
 /* ================= 持久化（加密后 PUT 密文文件） ================= */
-async function persist(){
-  const payload = await encryptJSON(S.key, { entries:S.vault.entries, settings:S.vault.settings, meta:S.vault.meta, categories:S.vault.categories });
-  S.blob = vaultBlob(S.blob.kdf.salt, S.blob.kdf.iterations, payload.iv, payload.data);
-  await apiPutVault(S.blob);
+// 串行互斥：并发触发时按调用顺序排队，避免各自读 S.blob 后交错覆盖
+let _persistTail = Promise.resolve();
+function persist(){
+  const prev = _persistTail.catch(() => {});
+  let release;
+  _persistTail = new Promise(r => release = r);
+  return prev.then(async () => {
+    try{
+      const payload = await encryptJSON(S.key, S.vault); // 整体序列化，新增顶层字段不再需要手工枚举
+      S.blob = vaultBlob(S.blob.kdf.salt, S.blob.kdf.iterations, payload.iv, payload.data);
+      await apiPutVault(S.blob);
+    } finally { release(); }
+  });
 }
 
 /* ================= 渲染：侧栏 ================= */
@@ -791,13 +803,13 @@ function renderSidebar(){
   const cnt = id => es.filter(e => (e.category || 'other') === id).length;
   const issues = issueCount();
   const item = (active, ic, label, right, attrs) =>
-    `<div class="nav-item ${active?'active':''}" ${attrs} role="button" tabindex="0">${icon(ic,17)}<span>${label}</span>${right||''}</div>`;
+    `<div class="nav-item ${active?'active':''}" ${attrs} role="button" tabindex="0">${icon(ic,17)}<span>${esc(label)}</span>${right||''}</div>`;
   $('#sb-nav').innerHTML =
     item(S.view==='list' && S.cat==='all' && !S.tag, 'folder', '全部账号', `<span class="cnt">${es.length}</span>`, `data-action="nav-cat" data-cat="all"`) +
     item(S.view==='list' && S.cat==='fav', 'star', '收藏', `<span class="cnt">${es.filter(e=>e.favorite).length}</span>`, `data-action="nav-cat" data-cat="fav"`) +
     `<div class="nav-sec">分类</div>` +
     getCats().map(c => item(S.view==='list' && S.cat===c.id, c.icon, c.label, `<span class="cnt">${cnt(c.id)}</span>`, `data-action="nav-cat" data-cat="${esc(c.id)}"`)).join('') +
-    (() => { const tags = allTags(); return tags.length ? `<div class="nav-sec">标签</div>` + tags.map(t => item(S.view==='list' && S.tag===t, 'tag', esc(t), `<span class="cnt">${es.filter(en => (en.tags||[]).includes(t)).length}</span>`, `data-action="nav-tag" data-tag="${esc(t)}"`)).join('') : ''; })() +
+    (() => { const tags = allTags(); return tags.length ? `<div class="nav-sec">标签</div>` + tags.map(t => item(S.view==='list' && S.tag===t, 'tag', t, `<span class="cnt">${es.filter(en => (en.tags||[]).includes(t)).length}</span>`, `data-action="nav-tag" data-tag="${esc(t)}"`)).join('') : ''; })() +
     `<div class="nav-sec">工具</div>` +
     item(S.view==='security', 'shield', '安全报告', issues ? `<span class="badge">${issues}</span>` : '', `data-action="nav-view" data-view="security"`) +
     item(S.view==='generator', 'sparkles', '密码生成器', '', `data-action="nav-view" data-view="generator"`);
@@ -1032,7 +1044,7 @@ function renderSet(container){
     </section>
     <section class="card row-in">
       <h3>${icon('lock',16)} 关于</h3>
-      <p class="about">MemKey v1.2.6 — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 安装开机自启.bat 安装。</p>
+      <p class="about">MemKey${S.meta?.version ? ' v' + esc(S.meta.version) : ''} — 本地密码保险库服务。加密与解密全部在浏览器内完成（AES-256-GCM + PBKDF2-SHA256 600,000 轮），服务端仅存取密文文件，主密码永不上传。开机自启：运行目录下的 安装开机自启.bat 安装。</p>
     </section>
     <section class="card card-danger row-in">
       <h3>${icon('warn',16)} 危险操作</h3>
@@ -1049,7 +1061,9 @@ function openDetail(id){
   S.detail = id;
   const h = hue(e.title || '?');
   const st = passwordStrength(e.password);
-  const catLabel = getCats().find(c => c.id === (e.category || 'other'))?.label || '其他';
+  const cat = getCats().find(c => c.id === (e.category || 'other'));
+  const catLabel = cat?.label || '其他';
+  const catIcon = cat?.icon || 'folder';
   const url = e.url ? (/^https?:\/\//i.test(e.url) ? e.url : 'https://' + e.url) : '';
   openModal(`
   <div class="modal" role="dialog" aria-modal="true" aria-label="账号详情">
@@ -1070,9 +1084,11 @@ function openDetail(id){
         <button class="icon-btn" data-action="copy-pass" data-id="${esc(e.id)}" aria-label="复制密码">${icon('copy',16)}</button></div>
       ${e.notes ? `<div class="dfield"><span class="dl">备注</span><span class="dv notes">${esc(e.notes)}</span>
         <button class="icon-btn" data-action="copy-notes" data-id="${esc(e.id)}" aria-label="复制备注">${icon('copy',16)}</button></div>` : ''}
-      ${(e.tags && e.tags.length) ? `<div class="dfield"><span class="dl">标签</span><span class="dv" style="display:flex;gap:6px;flex-wrap:wrap;white-space:normal;overflow:visible">${e.tags.map(t => `<span class="chip">#${esc(t)}</span>`).join('')}</span></div>` : ''}
+      <div class="m-attr">
+        <span class="chip chip-cat">${icon(catIcon,12)} ${esc(catLabel)}</span>
+        ${(e.tags && e.tags.length) ? e.tags.map(t => `<span class="dtag">#${esc(t)}</span>`).join('') : ''}
+      </div>
       <div class="m-meta">
-        <span class="chip">${esc(catLabel)}</span>
         <span class="m-time">${icon('clock',13)} 更新于 ${fmtRel(e.updatedAt)}</span>
         <span class="strength-tag" style="color:${st.color}">强度：${st.label}</span>
       </div>
@@ -1324,7 +1340,7 @@ document.addEventListener('click', async e => {
     }
     case 'cat-add': {
       const input = $('#new-cat-name');
-      const label = input.value.trim();
+      const label = input.value.trim().slice(0, 20);
       if(!label){ toast('请输入分类名称', 'warn'); input.focus(); break; }
       if(getCats().some(c => c.label === label)){ toast('已存在同名分类', 'warn'); break; }
       S.vault.categories.push({ id:'c_' + uuid().slice(0,8), label, icon:S.newCatIcon || 'tag' });
@@ -1341,7 +1357,7 @@ document.addEventListener('click', async e => {
     }
     case 'cat-rename-save': {
       const input = $('#cat-rename-input');
-      const label = input.value.trim();
+      const label = input.value.trim().slice(0, 20);
       if(!label){ toast('名称不能为空', 'warn'); break; }
       const c = S.vault.categories.find(x => x.id === S.catEditing);
       if(c) c.label = label;
@@ -1617,7 +1633,9 @@ document.addEventListener('submit', async e => {
   }
   else if(form.dataset.form === 'reset'){
     const input = document.getElementById('reset-input');
-    if((input?.value || '').trim() !== '重置'){ toast('请输入「重置」以确认', 'warn'); input?.focus(); return; }
+    // NFKC 折叠全角字符（如全角空格/全角字母），兼容输入「重置」或 reset
+    const confirmText = (input?.value || '').normalize('NFKC').trim().toLowerCase();
+    if(confirmText !== '重置' && confirmText !== 'reset'){ toast('请输入「重置」以确认', 'warn'); input?.focus(); return; }
     const btn = form.querySelector('[type=submit]');
     busy(btn, true, '重置中…');
     await apiDeleteVault();
@@ -1826,6 +1844,9 @@ setInterval(() => {
     const r = await fetch('/api/meta');
     if(r.ok) S.meta = await r.json();
   }catch{}
+  // 版本号唯一来源是服务端 /api/meta，前端不硬编码
+  const bv = document.querySelector('.bver');
+  if(bv && S.meta?.version) bv.textContent = 'v' + S.meta.version;
   let blob = null;
   try{ blob = await apiGetVault(); }catch{}
   if(!blob){
