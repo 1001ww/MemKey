@@ -276,9 +276,11 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
 .cat-row .cat-cnt{ font-size:12px; color:var(--faint); margin-left:auto; flex:none }
 .cat-row[draggable="true"]{ cursor:grab }
 .cat-row.dragging{ opacity:.4; cursor:grabbing }
-.cat-row.drag-over-top{ border-top:2px solid var(--blue) !important; margin-top:-1px }
-.cat-row.drag-over-bottom{ box-shadow:inset 0 -2px 0 var(--blue) }
+.cat-row.drag-over-top,.tag-row.drag-over-top{ border-top:2px solid var(--blue) !important; margin-top:-1px }
+.cat-row.drag-over-bottom,.tag-row.drag-over-bottom{ box-shadow:inset 0 -2px 0 var(--blue) }
 .cat-drag-handle{ color:var(--faint); flex:none; display:inline-flex }
+.tag-row[draggable="true"]{ cursor:grab }
+.tag-row.dragging{ opacity:.4; cursor:grabbing }
 .cat-name-input{ height:32px; font-size:13.5px }
 .cat-add-row{ display:flex; gap:8px; align-items:center; padding:14px 0 2px; border-top:1px solid var(--line); margin-top:14px; flex-wrap:wrap }
 .cat-add-row input{ flex:1; min-width:140px; height:36px }
@@ -376,6 +378,10 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
 .m-attr{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }
 .chip-cat{ display:inline-flex; gap:5px; align-items:center }
 .dtag{ font-size:12px; color:var(--muted); overflow-wrap:anywhere }
+.dfield-totp .dv.totp-code{ font-family:var(--mono); font-size:20px; letter-spacing:.16em; font-variant-numeric:tabular-nums }
+.totp-remain{ min-width:28px; font-family:var(--mono); font-size:12px; color:var(--muted); text-align:right; flex:none }
+.totp-hint{ font-size:12px; color:var(--faint); margin-top:6px; line-height:1.65 }
+.tag-row .tag-cnt{ font-size:12px; color:var(--faint); margin-left:auto; flex:none }
 .m-meta{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding-top:4px }
 .m-time{ font-size:12px; color:var(--faint); display:inline-flex; gap:5px; align-items:center }
 .strength-tag{ font-size:12px; margin-left:auto }
@@ -538,7 +544,49 @@ const CATS = [
 ];
 const ICON_POOL = ['folder','star','at','briefcase','landmark','bag','code','tag','globe','user','shield','lock','sparkles','file','clock'];
 const getCats = () => S.vault?.categories || CATS;
-const allTags = () => [...new Set((S.vault?.entries || []).flatMap(e => e.tags || []))].sort((a,b) => a.localeCompare(b,'zh'));
+const usedTags = () => [...new Set((S.vault?.entries || []).flatMap(e => e.tags || []))];
+const tagRank = name => {
+  const i = (S.vault?.tags || []).indexOf(name);
+  return i < 0 ? 1e9 : i;
+};
+const sortByTagOrder = (a, b) => {
+  const d = tagRank(a) - tagRank(b);
+  return d || a.localeCompare(b, 'zh');
+};
+const allTags = () => [...new Set([...(S.vault?.tags || []), ...usedTags()])].sort(sortByTagOrder);
+const listedTags = () => usedTags().sort(sortByTagOrder);
+const tagCount = name => (S.vault?.entries || []).filter(e => (e.tags || []).includes(name)).length;
+function rememberTag(name){
+  const v = String(name || '').trim().slice(0, 20);
+  if(!v) return;
+  S.vault.tags ??= [];
+  if(!S.vault.tags.includes(v)) S.vault.tags.push(v);
+}
+function ensureTagCatalog(){
+  S.vault.tags = allTags();
+}
+function applyTagRename(from, to){
+  const next = String(to || '').replace(/[,，]/g, '').trim().slice(0, 20);
+  if(!next) return { ok:false, msg:'名称不能为空' };
+  if(next === from) return { ok:true, noop:true };
+  if(allTags().includes(next)) return { ok:false, msg:'已存在同名标签，请使用合并' };
+  S.vault.entries.forEach(e => { if(e.tags) e.tags = e.tags.map(t => t === from ? next : t); });
+  S.vault.tags = (S.vault.tags || []).map(t => t === from ? next : t);
+  if(!S.vault.tags.includes(next)) S.vault.tags.push(next);
+  if(S.tag === from) S.tag = next;
+  return { ok:true };
+}
+function applyTagMerge(from, to){
+  if(!to || to === from) return { ok:false, msg:'请选择要并入的标签' };
+  S.vault.entries.forEach(e => {
+    if(!e.tags?.includes(from)) return;
+    e.tags = [...new Set(e.tags.map(t => t === from ? to : t))];
+  });
+  S.vault.tags = (S.vault.tags || []).filter(t => t !== from);
+  if(!S.vault.tags.includes(to)) S.vault.tags.push(to);
+  if(S.tag === from) S.tag = to;
+  return { ok:true };
+}
 const enc = new TextEncoder(), dec = new TextDecoder();
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const b64 = buf => { const u = new Uint8Array(buf); let s = ''; for(let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); };
@@ -590,6 +638,7 @@ const I = {
   file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/>',
   chev:'<polyline points="6 9 12 15 18 9"/>',
   grip:'<circle cx="9" cy="6" r="1.3"/><circle cx="15" cy="6" r="1.3"/><circle cx="9" cy="12" r="1.3"/><circle cx="15" cy="12" r="1.3"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>',
+  merge:'<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 9v6"/><path d="M8 18h7a3 3 0 0 0 3-3v-2"/>',
 };
 const icon = (n, s=18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]||''}</svg>`;
 
@@ -611,6 +660,66 @@ async function decryptJSON(key, blob){
   return JSON.parse(dec.decode(pt));
 }
 function vaultBlob(salt, iters, iv, data){ return { v:1, kdf:{ name:'PBKDF2-SHA256', iterations:iters, salt }, iv, data }; }
+
+/* ================= TOTP（RFC 6238，SHA-1 / 6 位 / 30 秒） ================= */
+const TOTP_PERIOD = 30, TOTP_DIGITS = 6;
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function normalizeTotpInput(raw){
+  const s = String(raw || '').trim();
+  if(!s) return '';
+  let secret = s;
+  const m = s.match(/^otpauth:\/\/totp\/[^?]*\?(.*)$/i);
+  if(m) secret = new URLSearchParams(m[1]).get('secret') || '';
+  return secret.replace(/[\s\-_]/g, '').toUpperCase().replace(/=+$/, '');
+}
+function decodeBase32(str){
+  const s = String(str || '').toUpperCase().replace(/[^A-Z2-7]/g, '');
+  if(!s) return null;
+  let bits = 0, val = 0;
+  const out = [];
+  for(const ch of s){
+    const idx = B32.indexOf(ch);
+    if(idx < 0) return null;
+    val = (val << 5) | idx;
+    bits += 5;
+    if(bits >= 8){ bits -= 8; out.push((val >>> bits) & 0xff); }
+  }
+  return out.length ? new Uint8Array(out) : null;
+}
+function totpRemain(now = Date.now()){ return TOTP_PERIOD - (Math.floor(now / 1000) % TOTP_PERIOD); }
+async function totpCode(secret, now = Date.now()){
+  try{
+    const keyBytes = decodeBase32(secret);
+    if(!keyBytes) return '';
+    const counter = Math.floor(now / 1000 / TOTP_PERIOD);
+    const buf = new ArrayBuffer(8);
+    const view = new DataView(buf);
+    view.setUint32(0, Math.floor(counter / 0x100000000));
+    view.setUint32(4, counter >>> 0);
+    const key = await crypto.subtle.importKey('raw', keyBytes, { name:'HMAC', hash:'SHA-1' }, false, ['sign']);
+    const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, buf));
+    const off = sig[sig.length - 1] & 0x0f;
+    const bin = ((sig[off] & 0x7f) << 24) | (sig[off + 1] << 16) | (sig[off + 2] << 8) | sig[off + 3];
+    return String(bin % (10 ** TOTP_DIGITS)).padStart(TOTP_DIGITS, '0');
+  }catch{ return ''; }
+}
+function stopTotpTick(){
+  if(S.totpTimer){ clearInterval(S.totpTimer); S.totpTimer = null; }
+}
+async function startTotpTick(secret){
+  stopTotpTick();
+  const paint = async () => {
+    const codeEl = document.getElementById('dv-totp');
+    const remainEl = document.getElementById('totp-remain');
+    if(!codeEl){ stopTotpTick(); return; }
+    const code = await totpCode(secret);
+    if(document.getElementById('dv-totp') !== codeEl) return;
+    codeEl.textContent = code || '------';
+    if(remainEl) remainEl.textContent = totpRemain() + 's';
+  };
+  await paint();
+  S.totpTimer = setInterval(paint, 1000);
+}
 
 /* ================= 强度 & 生成器 ================= */
 function passwordStrength(pw){
@@ -667,6 +776,7 @@ const S = {
   lastActivity: Date.now(),
   clipTimer: null, editDirty: false, lastEsc: 0,
   catEditing: null, newCatIcon: 'tag',
+  tagEditing: null, totpTimer: null,
 };
 const findEntry = id => S.vault?.entries.find(e => e.id === id);
 
@@ -698,6 +808,7 @@ function toast(msg, type='ok'){
   setTimeout(() => { el.classList.remove('in'); setTimeout(() => el.remove(), 240); }, 2600);
 }
 function openModal(html){
+  stopTotpTick();
   const root = $('#modal-root');
   root.innerHTML = `<div class="modal-backdrop">${html}</div>`;
   root.hidden = false;
@@ -711,6 +822,7 @@ function closeModal(){
   const root = $('#modal-root');
   const bd = root.firstElementChild;
   if(!bd) return;
+  stopTotpTick();
   S.editDirty = false; S.detail = null; S.editing = null;
   // 清除残留文档选区：弹窗 DOM 移除后焦点回落 BODY，行内残留的折叠选区会在列表文本上渲染闪烁插入符
   try{ document.getSelection().removeAllRanges(); }catch{}
@@ -767,6 +879,8 @@ function lockNow(note){
   clearTimeout(S.clipTimer);
   S.key = null; S.vault = null; S.view = 'list'; S.cat = 'all'; S.tag = null; S.q = '';
   S.detail = null; S.editing = null; S.editDirty = false;
+  S.catEditing = null; S.tagEditing = null;
+  stopTotpTick();
   closeModal();
   $('#modal-root').hidden = true; $('#modal-root').innerHTML = '';
   const pw = $('#lk-pw'); pw.value = '';
@@ -809,7 +923,7 @@ function renderSidebar(){
     item(S.view==='list' && S.cat==='fav', 'star', '收藏', `<span class="cnt">${es.filter(e=>e.favorite).length}</span>`, `data-action="nav-cat" data-cat="fav"`) +
     `<div class="nav-sec">分类</div>` +
     getCats().map(c => item(S.view==='list' && S.cat===c.id, c.icon, c.label, `<span class="cnt">${cnt(c.id)}</span>`, `data-action="nav-cat" data-cat="${esc(c.id)}"`)).join('') +
-    (() => { const tags = allTags(); return tags.length ? `<div class="nav-sec">标签</div>` + tags.map(t => item(S.view==='list' && S.tag===t, 'tag', t, `<span class="cnt">${es.filter(en => (en.tags||[]).includes(t)).length}</span>`, `data-action="nav-tag" data-tag="${esc(t)}"`)).join('') : ''; })() +
+    (() => { const tags = listedTags(); return tags.length ? `<div class="nav-sec">标签</div>` + tags.map(t => item(S.view==='list' && S.tag===t, 'tag', t, `<span class="cnt">${tagCount(t)}</span>`, `data-action="nav-tag" data-tag="${esc(t)}"`)).join('') : ''; })() +
     `<div class="nav-sec">工具</div>` +
     item(S.view==='security', 'shield', '安全报告', issues ? `<span class="badge">${issues}</span>` : '', `data-action="nav-view" data-view="security"`) +
     item(S.view==='generator', 'sparkles', '密码生成器', '', `data-action="nav-view" data-view="generator"`);
@@ -848,6 +962,7 @@ const rowHTML = (e, i) => {
     ${(e.tags && e.tags.length) ? `<span class="row-tags" title="${esc(e.tags.join('、'))}">${e.tags.map(t => '#' + esc(t)).join(' ')}</span>` : ''}
     <span class="strength-dot" style="background:${st.color}" title="密码强度：${st.label}"></span>
     <div class="row-actions">
+      ${e.totpSecret ? `<button class="icon-btn" data-action="copy-totp" data-id="${esc(e.id)}" title="复制验证码" aria-label="复制验证码">${icon('clock',15)}</button>` : ''}
       <button class="icon-btn" data-action="copy-user" data-id="${esc(e.id)}" title="复制用户名" aria-label="复制用户名">${icon('user',15)}</button>
       <button class="icon-btn" data-action="copy-pass" data-id="${esc(e.id)}" title="复制密码" aria-label="复制密码">${icon('copy',15)}</button>
       <button class="icon-btn star-btn ${e.favorite?'on':''}" data-action="fav" data-id="${esc(e.id)}" title="${e.favorite?'取消收藏':'收藏'}" aria-label="收藏">${icon('star',15)}</button>
@@ -1036,6 +1151,36 @@ function renderSet(container){
       </div>
     </section>
     <section class="card row-in">
+      <h3>${icon('tag',16)} 标签管理</h3>
+      ${(() => {
+        const names = allTags();
+        const unused = names.filter(t => tagCount(t) === 0);
+        if(!names.length) return `<p class="about">还没有标签。在编辑账号时添加标签后，可在此重命名、合并或清理。</p>`;
+        const row = t => {
+          const editing = S.tagEditing === t;
+          const n = tagCount(t);
+          return `<div class="set-row tag-row" data-tag="${esc(t)}"${editing ? '' : ' draggable="true"'}>
+            ${editing ? '<span style="width:15px;flex:none"></span>' : `<span class="cat-drag-handle" title="拖拽调整顺序">${icon('grip',15)}</span>`}
+            ${editing
+              ? `<div style="flex:1;display:flex;gap:6px;align-items:center;min-width:0">
+                  <input type="text" class="cat-name-input" id="tag-rename-input" maxlength="20" value="${esc(t)}" style="flex:1">
+                  <button class="btn btn-sm btn-primary" data-action="tag-rename-save" data-tag="${esc(t)}">保存</button>
+                  <button class="btn btn-sm" data-action="tag-rename-cancel">取消</button>
+                </div>`
+              : `<div class="set-info"><b>${esc(t)}</b>${n ? '' : '<span class="sub">未被任何账号使用</span>'}</div>
+                 <span class="tag-cnt">${n} 条</span>
+                 <button class="icon-btn" data-action="tag-rename" data-tag="${esc(t)}" title="重命名" aria-label="重命名">${icon('pencil',15)}</button>
+                 <button class="icon-btn" data-action="tag-merge" data-tag="${esc(t)}" title="合并到其他标签" aria-label="合并">${icon('merge',15)}</button>
+                 <button class="icon-btn" data-action="tag-del" data-tag="${esc(t)}" title="${n ? '从所有账号移除该标签' : '删除未使用标签'}" aria-label="删除">${icon('trash',15)}</button>`}
+          </div>`;
+        };
+        return names.map(row).join('') +
+          (unused.length
+            ? `<div class="cat-add-row"><button class="btn btn-sm" data-action="tag-clean">${icon('trash',13)} 清理 ${unused.length} 个无引用标签</button></div>`
+            : '');
+      })()}
+    </section>
+    <section class="card row-in">
       <h3>${icon('download',16)} 备份</h3>
       <div class="set-row"><div class="set-info"><b>导出加密备份</b><span class="sub">备份文件仍受主密码加密，可安全存放在任意位置</span></div>
         <button class="btn btn-sm" data-action="export">导出</button></div>
@@ -1082,6 +1227,9 @@ function openDetail(id){
       <div class="dfield"><span class="dl">密码</span><span class="dv mono" id="dv-pw">${'•'.repeat(Math.min(String(e.password||'').length || 8, 16))}</span>
         <button class="icon-btn" data-action="reveal" data-target="dv-pw" aria-label="显示密码">${icon('eye',16)}</button>
         <button class="icon-btn" data-action="copy-pass" data-id="${esc(e.id)}" aria-label="复制密码">${icon('copy',16)}</button></div>
+      ${e.totpSecret ? `<div class="dfield dfield-totp"><span class="dl">验证码</span><span class="dv mono totp-code" id="dv-totp">------</span>
+        <span class="totp-remain" id="totp-remain">${totpRemain()}s</span>
+        <button class="icon-btn" data-action="copy-totp" data-id="${esc(e.id)}" aria-label="复制验证码">${icon('copy',16)}</button></div>` : ''}
       ${e.notes ? `<div class="dfield"><span class="dl">备注</span><span class="dv notes">${esc(e.notes)}</span>
         <button class="icon-btn" data-action="copy-notes" data-id="${esc(e.id)}" aria-label="复制备注">${icon('copy',16)}</button></div>` : ''}
       <div class="m-attr">
@@ -1099,6 +1247,7 @@ function openDetail(id){
       <button class="btn btn-primary" data-action="edit">${icon('pencil',14)} 编辑</button>
     </div>
   </div>`);
+  if(e.totpSecret) startTotpTick(e.totpSecret);
 }
 function openEdit(id){
   const e = id ? findEntry(id) : null;
@@ -1143,6 +1292,13 @@ function openEdit(id){
         </div>
         <div class="frow" style="flex:1;min-width:150px"><label class="flabel">分类</label>
           ${ddHTML('category', getCats().map(c => ({ v:c.id, label:c.label, icon:c.icon })), e ? (e.category || 'other') : (getCats().some(c => c.id === S.cat) ? S.cat : 'other'))}</div>
+      </div>
+      <div class="frow"><label class="flabel">两步验证密钥</label>
+        <div class="pw-wrap">
+          <input name="totpSecret" id="ep-totp" type="password" maxlength="400" value="${esc(e?.totpSecret || '')}" placeholder="Base32 密钥或 otpauth:// 链接" autocomplete="off">
+          <button type="button" class="icon-btn" data-action="eye" data-target="ep-totp" aria-label="显示密钥">${icon('eye',17)}</button>
+        </div>
+        <p class="totp-hint">粘贴验证器提供的密钥或 otpauth 链接。留空则清除。生成 6 位、30 秒刷新的 TOTP 验证码。</p>
       </div>
       <div class="frow"><label class="flabel">备注</label><textarea name="notes" maxlength="2000" placeholder="安全问题、恢复代码、备注…">${v('notes')}</textarea></div>
     </div>
@@ -1351,6 +1507,7 @@ document.addEventListener('click', async e => {
     }
     case 'cat-rename': {
       S.catEditing = t.dataset.id;
+      S.tagEditing = null;
       renderSet($('#view .view-inner'));
       setTimeout(() => { const inp = $('#cat-rename-input'); if(inp){ inp.focus(); inp.select(); } }, 40);
       break;
@@ -1390,6 +1547,90 @@ document.addEventListener('click', async e => {
       closeModal();
       renderApp();
       toast('分类已删除');
+      break;
+    }
+    case 'tag-rename': {
+      S.tagEditing = t.dataset.tag;
+      S.catEditing = null;
+      renderSet($('#view .view-inner'));
+      setTimeout(() => { const inp = $('#tag-rename-input'); if(inp){ inp.focus(); inp.select(); } }, 40);
+      break;
+    }
+    case 'tag-rename-save': {
+      const from = S.tagEditing || t.dataset.tag;
+      const input = $('#tag-rename-input');
+      const r = applyTagRename(from, input?.value);
+      if(!r.ok){ toast(r.msg, 'warn'); break; }
+      S.tagEditing = null;
+      if(r.noop){ renderSet($('#view .view-inner')); break; }
+      await persist();
+      renderApp();
+      toast('标签已重命名');
+      break;
+    }
+    case 'tag-rename-cancel': {
+      S.tagEditing = null;
+      renderSet($('#view .view-inner'));
+      break;
+    }
+    case 'tag-merge': {
+      const from = t.dataset.tag;
+      const others = allTags().filter(x => x !== from);
+      if(!others.length){ toast('没有可合并的目标标签', 'warn'); break; }
+      openModal(`
+      <form class="modal" data-form="tag-merge" role="dialog" aria-modal="true" aria-label="合并标签" style="max-width:420px">
+        <div class="m-head"><div class="m-title">合并标签</div><div class="grow"></div>
+          <button type="button" class="icon-btn" data-action="close-modal" aria-label="关闭">${icon('x',18)}</button></div>
+        <div class="m-body">
+          <p style="font-size:13px;color:var(--muted);line-height:1.65">将「${esc(from)}」并入目标标签，账号上的引用会改写并去重。</p>
+          <input type="hidden" name="from" value="${esc(from)}">
+          <div class="frow"><label class="flabel">并入</label>${ddHTML('to', others.map(x => ({ v:x, label:x })), others[0])}</div>
+        </div>
+        <div class="m-foot">
+          <div class="grow"></div>
+          <button type="button" class="btn" data-action="close-modal">取消</button>
+          <button type="submit" class="btn btn-primary">合并</button>
+        </div>
+      </form>`);
+      break;
+    }
+    case 'tag-del': {
+      const name = t.dataset.tag;
+      const n = tagCount(name);
+      confirmModal({
+        title: n ? '移除标签' : '删除标签',
+        message: n ? `「${name}」将从 ${n} 个账号中移除。确定继续吗？` : `删除未使用的标签「${name}」？`,
+        okText: '删除', danger:true, action:'tag-del-confirm', dataId:name,
+      });
+      break;
+    }
+    case 'tag-del-confirm': {
+      S.vault.entries.forEach(en => { if(en.tags) en.tags = en.tags.filter(x => x !== id); });
+      S.vault.tags = (S.vault.tags || []).filter(x => x !== id);
+      if(S.tag === id) S.tag = null;
+      await persist();
+      closeModal();
+      renderApp();
+      toast('标签已删除');
+      break;
+    }
+    case 'tag-clean': {
+      const unused = allTags().filter(x => tagCount(x) === 0);
+      if(!unused.length){ toast('没有无引用标签', 'warn'); break; }
+      confirmModal({
+        title:'清理无引用标签',
+        message:`将删除 ${unused.length} 个未被任何账号使用的标签：${unused.join('、')}。`,
+        okText:'清理', danger:true, action:'tag-clean-confirm',
+      });
+      break;
+    }
+    case 'tag-clean-confirm': {
+      const used = new Set(usedTags());
+      S.vault.tags = (S.vault.tags || []).filter(x => used.has(x));
+      await persist();
+      closeModal();
+      renderApp();
+      toast('已清理无引用标签');
       break;
     }
     case 'forgot': {
@@ -1477,6 +1718,13 @@ document.addEventListener('click', async e => {
     }
     case 'copy-user': { const en = findEntry(id); if(en) doCopy(en.username, '用户名'); break; }
     case 'copy-pass': { const en = findEntry(id); if(en) doCopy(en.password, '密码', true); break; }
+    case 'copy-totp': {
+      const en = findEntry(id);
+      if(!en?.totpSecret) break;
+      const code = await totpCode(en.totpSecret);
+      doCopy(code, '验证码', true);
+      break;
+    }
     case 'copy-notes': { const en = findEntry(id); if(en) doCopy(en.notes, '备注'); break; }
     case 'reveal': {
       const span = document.getElementById(t.dataset.target);
@@ -1569,7 +1817,7 @@ document.addEventListener('submit', async e => {
     busy(btn, true, '正在创建…');
     const salt = crypto.getRandomValues(new Uint8Array(16));
     S.key = await deriveKey(pw, salt, KDF_ITERS);
-    S.vault = { entries:[], settings:{ autoLock:5 }, meta:{ createdAt:Date.now() }, categories: CATS.map(c => ({ ...c })) };
+    S.vault = { entries:[], settings:{ autoLock:5 }, meta:{ createdAt:Date.now() }, categories: CATS.map(c => ({ ...c })), tags:[] };
     S.blob = { kdf:{ name:'PBKDF2-SHA256', iterations:KDF_ITERS, salt:b64(salt) } };
     await persist();
     busy(btn, false);
@@ -1586,6 +1834,7 @@ document.addEventListener('submit', async e => {
       const key = await deriveKey(pw, unb64(S.blob.kdf.salt), S.blob.kdf.iterations);
       S.vault = await decryptJSON(key, S.blob);
       S.vault.categories ??= CATS.map(c => ({ ...c })); // 老数据迁移：初始化默认分类
+      ensureTagCatalog();
       S.key = key;
       busy(btn, false);
       $('#lk-pw').value = '';
@@ -1604,8 +1853,11 @@ document.addEventListener('submit', async e => {
     const fd = new FormData(form);
     const title = String(fd.get('title') || '').trim();
     if(!title){ toast('请填写名称', 'warn'); form.querySelector('[name=title]').focus(); return; }
+    const totpSecret = normalizeTotpInput(fd.get('totpSecret'));
+    if(totpSecret && !decodeBase32(totpSecret)){ toast('两步验证密钥无效，请检查 Base32 或 otpauth 链接', 'warn'); return; }
     const now = Date.now();
     const old = S.editing ? findEntry(S.editing) : null;
+    const tags = [...form.querySelectorAll('#tag-editor .tag-chip')].map(el => el.dataset.tag);
     const entry = {
       id: old ? old.id : uuid(),
       title,
@@ -1615,12 +1867,14 @@ document.addEventListener('submit', async e => {
       notes: String(fd.get('notes') || '').trim(),
       category: fd.get('category') || 'other',
       favorite: form.querySelector('[data-action=edit-fav]')?.classList.contains('on') || false,
-      tags: [...form.querySelectorAll('#tag-editor .tag-chip')].map(el => el.dataset.tag),
+      tags,
+      totpSecret,
       createdAt: old ? old.createdAt : now,
       updatedAt: now,
     };
     if(old){ Object.assign(old, entry); }
     else S.vault.entries.push(entry);
+    tags.forEach(rememberTag);
     const saveBtn = form.querySelector('[type=submit]');
     busy(saveBtn, true, '保存中…');
     await persist();
@@ -1630,6 +1884,15 @@ document.addEventListener('submit', async e => {
     renderApp();
     if(entry.password && passwordStrength(entry.password).score <= 1) toast('已保存 · 提示：密码强度较弱，建议更换');
     else toast('已保存');
+  }
+  else if(form.dataset.form === 'tag-merge'){
+    const fd = new FormData(form);
+    const r = applyTagMerge(String(fd.get('from') || ''), String(fd.get('to') || ''));
+    if(!r.ok){ toast(r.msg, 'warn'); return; }
+    await persist();
+    closeModal();
+    renderApp();
+    toast('标签已合并');
   }
   else if(form.dataset.form === 'reset'){
     const input = document.getElementById('reset-input');
@@ -1704,11 +1967,13 @@ function updateGen(t){
   renderGenBox(box);
 }
 
-/* ================= 事件：分类拖拽排序 ================= */
+/* ================= 事件：分类 / 标签拖拽排序 ================= */
 let dragRow = null;
+const sortRowOf = el => el?.closest?.('.cat-row, .tag-row');
+const sameSortKind = (a, b) => a.classList.contains('cat-row') === b.classList.contains('cat-row');
 const clearDropMarks = () => document.querySelectorAll('.drag-over-top,.drag-over-bottom').forEach(el => el.classList.remove('drag-over-top','drag-over-bottom'));
 document.addEventListener('dragstart', e => {
-  const row = e.target.closest?.('.cat-row');
+  const row = sortRowOf(e.target);
   if(!row || !row.draggable) return;
   dragRow = row;
   row.classList.add('dragging');
@@ -1724,30 +1989,37 @@ document.addEventListener('dragend', () => {
 document.addEventListener('dragover', e => {
   if(!dragRow) return;
   e.preventDefault();
-  const row = e.target.closest?.('.cat-row');
+  const row = sortRowOf(e.target);
   clearDropMarks();
-  if(!row || row === dragRow) return;
+  if(!row || row === dragRow || !sameSortKind(row, dragRow)) return;
   const rect = row.getBoundingClientRect();
   row.classList.add(e.clientY < rect.top + rect.height / 2 ? 'drag-over-top' : 'drag-over-bottom');
 });
 document.addEventListener('drop', async e => {
   if(!dragRow) return;
   e.preventDefault();
-  const target = e.target.closest?.('.cat-row');
+  const target = sortRowOf(e.target);
   clearDropMarks();
   dragRow.classList.remove('dragging');
-  if(!target || target === dragRow){ dragRow = null; return; }
+  if(!target || target === dragRow || !sameSortKind(target, dragRow)){ dragRow = null; return; }
   // DOM 原位重排，避免整页重渲染
   const before = e.clientY < target.getBoundingClientRect().top + target.getBoundingClientRect().height / 2;
   target.parentNode.insertBefore(dragRow, before ? target : target.nextSibling);
+  const isCat = dragRow.classList.contains('cat-row');
   dragRow = null;
-  // 按新 DOM 顺序同步数据并静默保存
-  const ids = [...document.querySelectorAll('.cat-row')].map(r => r.dataset.cid);
-  S.vault.categories.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
   try{
-    await persist();
-    renderSidebar(); // 仅侧栏同步顺序
-    toast('分类顺序已更新');
+    if(isCat){
+      const ids = [...document.querySelectorAll('.cat-row')].map(r => r.dataset.cid);
+      S.vault.categories.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+      await persist();
+      renderSidebar();
+      toast('分类顺序已更新');
+    }else{
+      S.vault.tags = [...document.querySelectorAll('.tag-row')].map(r => r.dataset.tag);
+      await persist();
+      renderSidebar();
+      toast('标签顺序已更新');
+    }
   }catch(ex){
     toast('保存失败：' + (ex.message || ex), 'err');
   }
