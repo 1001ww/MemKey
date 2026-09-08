@@ -706,8 +706,8 @@ function makeBlobV2(kdf, wpw, extras){
 }
 
 /* ================= 恢复码（DK 的第二重包裹） ================= */
-const REC_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // 去掉易混淆的 I / L / O / 0 / 1
-const REC_ITERS = 100000; // 恢复码是 ~97bit 随机串，10 万轮足够，且解锁派生更快
+const REC_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // 去掉易混淆的 I / L / O / 0 / 1；31 字符 × 20 位 ≈ 99 bit
+const REC_ITERS = 100000; // 恢复码是 ~99bit 随机串，10 万轮足够，且解锁派生更快
 function genRecCode(){
   let s = '';
   for(let i = 0; i < 20; i++) s += REC_ALPHABET[randInt(REC_ALPHABET.length)];
@@ -742,7 +742,7 @@ function normalizeTotpInput(raw){
   return secret.replace(/[\s\-_]/g, '').toUpperCase().replace(/=+$/, '');
 }
 function decodeBase32(str){
-  const s = String(str || '').toUpperCase().replace(/[^A-Z2-7]/g, '');
+  const s = String(str || '').toUpperCase();
   if(!s) return null;
   let bits = 0, val = 0;
   const out = [];
