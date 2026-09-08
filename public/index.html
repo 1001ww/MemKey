@@ -348,6 +348,35 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
 .pw-wrap input{ flex:1; min-width:0 }
 .pw-wrap .icon-btn{ width:36px; height:36px }
 
+/* 生成器模式切换（随机字符 / 密码短语） */
+.gen-mode{ display:flex; background:var(--soft); border:1px solid var(--line); border-radius:9px; padding:3px; gap:3px }
+.gen-mode button{ flex:1; height:30px; border:0; background:transparent; border-radius:7px; color:var(--muted); font:inherit; font-size:13px; cursor:pointer; transition:background .13s,color .13s }
+.gen-mode button:hover{ color:var(--text) }
+.gen-mode button.sel{ background:var(--card); color:var(--blue); font-weight:600; box-shadow:0 1px 3px rgba(27,37,64,.1) }
+
+/* 详情弹窗：历史密码（次级信息独立区块，位于属性行之后） */
+.m-hist{ border-top:1px solid var(--line); padding-top:10px }
+.hist-head{ display:flex; align-items:center; gap:7px; width:100%; padding:4px 2px; background:none; border:0; color:var(--muted); font:inherit; font-size:12.5px; cursor:pointer }
+.hist-head:hover{ color:var(--text) }
+.hist-head svg:last-of-type{ transition:transform .15s }
+.hist-head[aria-expanded="true"] svg:last-of-type{ transform:rotate(180deg) }
+.hist-list{ display:grid; gap:6px; margin-top:8px }
+.hist-row{ display:flex; align-items:center; gap:8px; padding:8px 11px; background:var(--soft); border:1px solid var(--line); border-radius:9px }
+.hist-time{ font-size:11.5px; color:var(--faint); flex:none; width:58px }
+.hist-pw{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px }
+.hist-clear{ justify-self:start; margin-top:2px }
+
+/* 恢复码展示 */
+.rec-code{
+  font-family:var(--mono); font-size:19px; letter-spacing:.06em; text-align:center;
+  background:var(--soft); border:1px dashed var(--line-strong); border-radius:10px;
+  padding:14px 10px; color:var(--text); user-select:all; word-break:break-all; line-height:1.5;
+}
+
+/* 解锁页附加入口（提示 / 恢复码） */
+.lock-links{ margin-top:14px; display:grid; gap:2px; justify-items:center }
+.lock-links .forgot-link{ margin-top:0 }
+
 /* ============ 弹窗 ============ */
 .modal-backdrop{
   position:fixed; inset:0; background:rgba(27,37,64,.4); display:grid; place-items:center;
@@ -451,11 +480,15 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
         <label class="flabel" for="su-pw2">确认主密码</label>
         <input id="su-pw2" type="password" autocomplete="new-password" placeholder="再输入一次">
       </div>
+      <div style="margin-top:8px">
+        <label class="flabel" for="su-hint">主密码提示（可选）</label>
+        <input id="su-hint" type="text" maxlength="50" autocomplete="off" placeholder="如：外婆家的门牌号（明文保存，解锁页可见）">
+      </div>
       <div class="warnbox">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        <span>主密码是唯一的解密钥匙，没有任何找回途径。建议使用 12 位以上的长密码短语。</span>
+        <span>主密码是唯一的解密钥匙，请以牢记为先，建议 12 位以上长密码短语。创建后将生成一串恢复码，作为忘记主密码时的最后找回手段。</span>
       </div>
-      <label class="check ack"><input type="checkbox" id="su-ack"><span>我已了解：主密码遗忘后，保险库数据将永久无法恢复</span></label>
+      <label class="check ack"><input type="checkbox" id="su-ack"><span>我已了解：主密码与恢复码都丢失时，保险库数据将永久无法恢复</span></label>
       <button class="btn btn-primary btn-block" id="su-btn" type="submit">创建保险库</button>
     </form>
   </div>
@@ -481,6 +514,10 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
       <button class="btn btn-primary btn-block" id="lk-btn" type="submit" style="height:42px">解锁</button>
       <p class="lock-note" id="lk-note" hidden></p>
     </form>
+    <div class="lock-links">
+      <button type="button" class="forgot-link" id="lock-hint" data-action="show-hint" hidden>查看主密码提示</button>
+      <button type="button" class="forgot-link" id="lock-rec" data-action="rec-unlock" hidden>使用恢复码解锁</button>
+    </div>
     <button type="button" class="forgot-link" data-action="forgot">忘记主密码？</button>
   </div>
   <p class="auth-foot">AES-256-GCM 加密 · 零知识架构 · 主密码永不上传</p>
@@ -642,24 +679,56 @@ const I = {
 };
 const icon = (n, s=18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]||''}</svg>`;
 
-/* ================= 加密核心（浏览器端，零知识） ================= */
-async function deriveKey(password, salt, iterations){
-  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey(
-    { name:'PBKDF2', salt, iterations, hash:'SHA-256' },
-    base, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']
-  );
+/* ================= 加密核心（浏览器端，零知识） =================
+ * 密码库外壳 v2：随机数据密钥 DK 加密整库，主密码与恢复码各自包裹 DK。
+ * 修改主密码只需重新包裹 DK，无需改写库密文；恢复码信封不随主密码变化。
+ * v1（整库直接由主密码密钥加密）在解锁时自动迁移。
+ */
+async function deriveMasterBits(password, salt, iterations){
+  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+  return crypto.subtle.deriveBits({ name:'PBKDF2', salt, iterations, hash:'SHA-256' }, base, 256);
+}
+function masterKeyFromBits(bits){
+  return crypto.subtle.importKey('raw', bits, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']);
 }
 async function encryptJSON(key, obj){
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, key, enc.encode(JSON.stringify(obj)));
   return { iv: b64(iv), data: b64(ct) };
 }
-async function decryptJSON(key, blob){
-  const pt = await crypto.subtle.decrypt({ name:'AES-GCM', iv: unb64(blob.iv) }, key, unb64(blob.data));
+async function decryptJSON(key, env){
+  const pt = await crypto.subtle.decrypt({ name:'AES-GCM', iv: unb64(env.iv) }, key, unb64(env.data));
   return JSON.parse(dec.decode(pt));
 }
-function vaultBlob(salt, iters, iv, data){ return { v:1, kdf:{ name:'PBKDF2-SHA256', iterations:iters, salt }, iv, data }; }
+function makeBlobV2(kdf, wpw, extras){
+  const blob = { v:2, kdf, wpw };
+  return extras ? Object.assign(blob, extras) : blob;
+}
+
+/* ================= 恢复码（DK 的第二重包裹） ================= */
+const REC_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // 去掉易混淆的 I / L / O / 0 / 1
+const REC_ITERS = 100000; // 恢复码是 ~97bit 随机串，10 万轮足够，且解锁派生更快
+function genRecCode(){
+  let s = '';
+  for(let i = 0; i < 20; i++) s += REC_ALPHABET[randInt(REC_ALPHABET.length)];
+  return s.match(/.{5}/g).join('-');
+}
+function normalizeRecCode(raw){
+  return String(raw || '').toUpperCase().replace(/[\s\-]/g, '');
+}
+async function deriveRecKey(code, salt, iterations){
+  const base = await crypto.subtle.importKey('raw', enc.encode(code), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name:'PBKDF2', salt, iterations, hash:'SHA-256' }, base, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']);
+}
+async function makeRecEnvelope(code, dkBits){
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key = await deriveRecKey(normalizeRecCode(code), salt, REC_ITERS);
+  return Object.assign({ kdf:{ name:'PBKDF2-SHA256', iterations:REC_ITERS, salt:b64(salt) } }, await encryptJSON(key, { dk: b64(dkBits) }));
+}
+async function unwrapRec(code, rec){
+  const key = await deriveRecKey(normalizeRecCode(code), unb64(rec.kdf.salt), rec.kdf.iterations);
+  return decryptJSON(key, rec); // { dk: ... }
+}
 
 /* ================= TOTP（RFC 6238，SHA-1 / 6 位 / 30 秒） ================= */
 const TOTP_PERIOD = 30, TOTP_DIGITS = 6;
@@ -722,6 +791,13 @@ async function startTotpTick(secret){
 }
 
 /* ================= 强度 & 生成器 ================= */
+function bitsToStrength(bits){
+  bits = Math.round(bits);
+  const score = bits >= 100 ? 4 : bits >= 70 ? 3 : bits >= 45 ? 2 : bits >= 28 ? 1 : 0;
+  const labels = ['很弱','弱','一般','强','极强'];
+  const colors = ['var(--red)','var(--red)','var(--amber)','var(--green)','var(--green)'];
+  return { score, bits, label:labels[score], color:colors[score] };
+}
 function passwordStrength(pw){
   if(!pw) return { score:0, bits:0, label:'—', color:'var(--faint)' };
   let pool = 0;
@@ -734,11 +810,7 @@ function passwordStrength(pw){
   if(/(0123|1234|2345|3456|4567|5678|6789|abcd|qwer|asdf|zxcv)/i.test(pw)) bits *= 0.7;
   if(/(password|admin|letmein|iloveyou|111111|123456|abc123)/i.test(pw)) bits = Math.min(bits, 22);
   if(/^[a-zA-Z]+$/.test(pw)) bits *= .9;
-  bits = Math.round(bits);
-  const score = bits >= 100 ? 4 : bits >= 70 ? 3 : bits >= 45 ? 2 : bits >= 28 ? 1 : 0;
-  const labels = ['很弱','弱','一般','强','极强'];
-  const colors = ['var(--red)','var(--red)','var(--amber)','var(--green)','var(--green)'];
-  return { score, bits, label:labels[score], color:colors[score] };
+  return bitsToStrength(bits);
 }
 function randInt(max){ // 拒绝采样，保证均匀
   const lim = Math.floor(0x100000000 / max) * max;
@@ -746,7 +818,22 @@ function randInt(max){ // 拒绝采样，保证均匀
   do { crypto.getRandomValues(u); } while(u[0] >= lim);
   return u[0] % max;
 }
+/* EFF 短词库 v1（1296 词），来源 https://www.eff.org/diceware，CSPRNG 采样每个词约 10.34 bit 熵 */
+const WORDS = 'acid acorn acre acts afar affix aged agent agile aging agony ahead aide aids aim ajar alarm alias alibi alien alike alive aloe aloft aloha alone amend amino ample amuse angel anger angle ankle apple april apron aqua area arena argue arise armed armor army aroma array arson art ashen ashes atlas atom attic audio avert avoid awake award awoke axis bacon badge bagel baggy baked baker balmy banjo barge barn bash basil bask batch bath baton bats blade blank blast blaze bleak blend bless blimp blink bloat blob blog blot blunt blurt blush boast boat body boil bok bolt boned boney bonus bony book booth boots boss botch both boxer breed bribe brick bride brim bring brink brisk broad broil broke brook broom brush buck bud buggy bulge bulk bully bunch bunny bunt bush bust busy buzz cable cache cadet cage cake calm cameo canal candy cane canon cape card cargo carol carry carve case cash cause cedar chain chair chant chaos charm chase cheek cheer chef chess chest chew chief chili chill chip chomp chop chow chuck chump chunk churn chute cider cinch city civic civil clad claim clamp clap clash clasp class claw clay clean clear cleat cleft clerk click cling clink clip cloak clock clone cloth cloud clump coach coast coat cod coil coke cola cold colt coma come comic comma cone cope copy coral cork cost cot couch cough cover cozy craft cramp crane crank crate crave crawl crazy creme crepe crept crib cried crisp crook crop cross crowd crown crumb crush crust cub cult cupid cure curl curry curse curve curvy cushy cut cycle dab dad daily dairy daisy dance dandy darn dart dash data date dawn deaf deal dean debit debt debug decaf decal decay deck decor decoy deed delay denim dense dent depth derby desk dial diary dice dig dill dime dimly diner dingy disco dish disk ditch ditzy dizzy dock dodge doing doll dome donor donut dose dot dove down dowry doze drab drama drank draw dress dried drift drill drive drone droop drove drown drum dry duck duct dude dug duke duo dusk dust duty dwarf dwell eagle early earth easel east eaten eats ebay ebony ebook echo edge eel eject elbow elder elf elk elm elope elude elves email emit empty emu enter entry envoy equal erase error erupt essay etch evade even evict evil evoke exact exit fable faced fact fade fall false fancy fang fax feast feed femur fence fend ferry fetal fetch fever fiber fifth fifty film filth final finch fit five flag flaky flame flap flask fled flick fling flint flip flirt float flock flop floss flyer foam foe fog foil folic folk food fool found fox foyer frail frame fray fresh fried frill frisk from front frost froth frown froze fruit gag gains gala game gap gas gave gear gecko geek gem genre gift gig gills given giver glad glass glide gloss glove glow glue goal going golf gong good gooey goofy gore gown grab grain grant grape graph grasp grass grave gravy gray green greet grew grid grief grill grip grit groom grope growl grub grunt guide gulf gulp gummy guru gush gut guy habit half halo halt happy harm hash hasty hatch hate haven hazel hazy heap heat heave hedge hefty help herbs hers hub hug hula hull human humid hump hung hunk hunt hurry hurt hush hut ice icing icon icy igloo image ion iron islam issue item ivory ivy jab jam jaws jazz jeep jelly jet jiffy job jog jolly jolt jot joy judge juice juicy july jumbo jump junky juror jury keep keg kept kick kilt king kite kitty kiwi knee knelt koala kung ladle lady lair lake lance land lapel large lash lasso last latch late lazy left legal lemon lend lens lent level lever lid life lift lilac lily limb limes line lint lion lip list lived liver lunar lunch lung lurch lure lurk lying lyric mace maker malt mama mango manor many map march mardi marry mash match mate math moan mocha moist mold mom moody mop morse most motor motto mount mouse mousy mouth move movie mower mud mug mulch mule mull mumbo mummy mural muse music musky mute nacho nag nail name nanny nap navy near neat neon nerd nest net next niece ninth nutty oak oasis oat ocean oil old olive omen onion only ooze opal open opera opt otter ouch ounce outer oval oven owl ozone pace pagan pager palm panda panic pants panty paper park party pasta patch path patio payer pecan penny pep perch perky perm pest petal petri petty photo plank plant plaza plead plot plow pluck plug plus poach pod poem poet pogo point poise poker polar polio polka polo pond pony poppy pork poser pouch pound pout power prank press print prior prism prize probe prong proof props prude prune pry pug pull pulp pulse puma punch punk pupil puppy purr purse push putt quack quake query quiet quill quilt quit quota quote rabid race rack radar radio raft rage raid rail rake rally ramp ranch range rank rant rash raven reach react ream rebel recap relax relay relic remix repay repel reply rerun reset rhyme rice rich ride rigid rigor rinse riot ripen rise risk ritzy rival river roast robe robin rock rogue roman romp rope rover royal ruby rug ruin rule runny rush rust rut sadly sage said saint salad salon salsa salt same sandy santa satin sauna saved savor sax say scale scam scan scare scarf scary scoff scold scoop scoot scope score scorn scout scowl scrap scrub scuba scuff sect sedan self send sepia serve set seven shack shade shady shaft shaky sham shape share sharp shed sheep sheet shelf shell shine shiny ship shirt shock shop shore shout shove shown showy shred shrug shun shush shut shy sift silk silly silo sip siren sixth size skate skew skid skier skies skip skirt skit sky slab slack slain slam slang slash slate slaw sled sleek sleep sleet slept slice slick slimy sling slip slit slob slot slug slum slurp slush small smash smell smile smirk smog snack snap snare snarl sneak sneer sniff snore snort snout snowy snub snuff speak speed spend spent spew spied spill spiny spoil spoke spoof spool spoon sport spot spout spray spree spur squad squat squid stack staff stage stain stall stamp stand stank stark start stash state stays steam steep stem step stew stick sting stir stock stole stomp stony stood stool stoop stop storm stout stove straw stray strut stuck stud stuff stump stung stunt suds sugar sulk surf sushi swab swan swarm sway swear sweat sweep swell swept swim swing swipe swirl swoop swore syrup tacky taco tag take tall talon tamer tank taper taps tarot tart task taste tasty taunt thank thaw theft theme thigh thing think thong thorn those throb thud thumb thump thus tiara tidal tidy tiger tile tilt tint tiny trace track trade train trait trap trash tray treat tree trek trend trial tribe trick trio trout truce truck trump trunk try tug tulip tummy turf tusk tutor tutu tux tweak tweet twice twine twins twirl twist uncle uncut undo unify union unit untie upon upper urban used user usher utter value vapor vegan venue verse vest veto vice video view viral virus visa visor vixen vocal voice void volt voter vowel wad wafer wager wages wagon wake walk wand wasp watch water wavy wheat whiff whole whoop wick widen widow width wife wifi wilt wimp wind wing wink wipe wired wiry wise wish wispy wok wolf womb wool woozy word work worry wound woven wrath wreck wrist xerox yahoo yam yard year yeast yelp yield yo-yo yodel yoga yoyo yummy zebra zero zesty zippy zone zoom'.split(' ');
+function passEntropy(st){
+  let bits = st.words * Math.log2(WORDS.length);
+  if(st.num) bits += Math.log2(100);
+  return bits;
+}
 function genPassword(o){
+  if(o.mode === 'pass'){
+    const words = [];
+    for(let i = 0; i < o.words; i++) words.push(WORDS[randInt(WORDS.length)]);
+    if(o.cap) for(let i = 0; i < words.length; i++) words[i] = words[i][0].toUpperCase() + words[i].slice(1);
+    let out = words.join(o.sep);
+    if(o.num) out += String(randInt(100)).padStart(2, '0');
+    return out;
+  }
   const sets = {
     upper:   o.exclude ? 'ABCDEFGHJKLMNPQRSTUVWXYZ' : 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
     lower:   o.exclude ? 'abcdefghijkmnpqrstuvwxyz' : 'abcdefghijklmnopqrstuvwxyz',
@@ -769,7 +856,7 @@ const REQS = [
 
 /* ================= 状态 ================= */
 const S = {
-  key: null, vault: null, blob: null, meta: null,
+  key: null, keyBits: null, vault: null, blob: null, meta: null,
   view: 'list', cat: 'all', tag: null, q: '',
   detail: null, editing: null,
   pendingImport: null,
@@ -777,7 +864,10 @@ const S = {
   clipTimer: null, editDirty: false, lastEsc: 0,
   catEditing: null, newCatIcon: 'tag',
   tagEditing: null, totpTimer: null,
+  recMode: false, histOpen: false,
+  recCodeShown: null, recResetPending: false,
 };
+const HIST_MAX = 10; // 每个账号保留的历史密码上限
 const findEntry = id => S.vault?.entries.find(e => e.id === id);
 
 /* ================= 服务端 API（只传密文） ================= */
@@ -823,7 +913,11 @@ function closeModal(){
   const bd = root.firstElementChild;
   if(!bd) return;
   stopTotpTick();
-  S.editDirty = false; S.detail = null; S.editing = null;
+  S.editDirty = false; S.detail = null; S.editing = null; S.histOpen = false;
+  if(S.recResetPending){
+    S.recResetPending = false;
+    setTimeout(() => toast('已用恢复码解锁 · 请尽快在 设置 → 安全 中重设主密码', 'warn'), 200);
+  }
   // 清除残留文档选区：弹窗 DOM 移除后焦点回落 BODY，行内残留的折叠选区会在列表文本上渲染闪烁插入符
   try{ document.getSelection().removeAllRanges(); }catch{}
   bd.classList.remove('show');
@@ -874,19 +968,44 @@ async function doCopy(text, label, secret=false){
 function showScreen(id){
   ['scr-setup','scr-lock','scr-app'].forEach(s => $('#'+s).hidden = (s !== id));
 }
+// 老数据迁移：默认分类 / 设置 / 标签目录（解锁成功后调用，S.vault 已就绪）
+function migrateVault(){
+  S.vault.settings ??= { autoLock:5 };
+  S.vault.categories ??= CATS.map(c => ({ ...c }));
+  ensureTagCatalog();
+}
+function updateLockExtras(){
+  const hintBtn = document.getElementById('lock-hint');
+  const recBtn = document.getElementById('lock-rec');
+  if(hintBtn) hintBtn.hidden = !S.blob?.hint;
+  if(recBtn) recBtn.hidden = !S.blob?.rec;
+}
+function setRecMode(on){
+  S.recMode = on;
+  const pw = $('#lk-pw');
+  if(pw){ pw.value = ''; pw.placeholder = on ? '恢复码' : '主密码'; }
+  const btn = document.getElementById('lock-rec');
+  if(btn) btn.textContent = on ? '使用主密码解锁' : '使用恢复码解锁';
+  const err = $('#lk-err');
+  if(err) err.hidden = true;
+  pw?.focus();
+}
 function lockNow(note){
   try{ navigator.clipboard?.writeText(''); }catch{}
   clearTimeout(S.clipTimer);
-  S.key = null; S.vault = null; S.view = 'list'; S.cat = 'all'; S.tag = null; S.q = '';
+  S.key = null; S.keyBits = null; S.vault = null; S.view = 'list'; S.cat = 'all'; S.tag = null; S.q = '';
   S.detail = null; S.editing = null; S.editDirty = false;
   S.catEditing = null; S.tagEditing = null;
+  S.histOpen = false; S.recCodeShown = null; S.recResetPending = false;
   stopTotpTick();
   closeModal();
   $('#modal-root').hidden = true; $('#modal-root').innerHTML = '';
-  const pw = $('#lk-pw'); pw.value = '';
+  setRecMode(false);
+  const pw = $('#lk-pw');
   const err = $('#lk-err'); err.hidden = true;
   const n = $('#lk-note');
   if(note){ n.textContent = note; n.hidden = false; } else n.hidden = true;
+  updateLockExtras();
   showScreen('scr-lock');
   setTimeout(() => pw.focus(), 60);
 }
@@ -901,7 +1020,8 @@ function persist(){
   return prev.then(async () => {
     try{
       const payload = await encryptJSON(S.key, S.vault); // 整体序列化，新增顶层字段不再需要手工枚举
-      S.blob = vaultBlob(S.blob.kdf.salt, S.blob.kdf.iterations, payload.iv, payload.data);
+      // 只改写库密文；kdf / wpw / rec / hint 等外壳字段保持不变
+      S.blob = Object.assign({}, S.blob, { vault: payload });
       await apiPutVault(S.blob);
     } finally { release(); }
   });
@@ -1005,14 +1125,32 @@ function genHTML(embed){
       ${embed ? '' : `<button type="button" class="icon-btn" data-action="gen-copy" aria-label="复制" title="复制">${icon('copy',16)}</button>`}
     </div>
     <div class="gen-opts">
-      <div class="gen-len"><span>长度</span><input type="range" min="8" max="64" value="16" data-gen-ctrl="length" aria-label="密码长度"><b data-gen-len-val>16</b></div>
-      <div class="gen-toggles">
+      <div class="gen-mode" role="tablist" aria-label="生成模式">
+        <button type="button" data-action="gen-mode" data-mode="chars">随机字符</button>
+        <button type="button" data-action="gen-mode" data-mode="pass">密码短语</button>
+      </div>
+      <div class="gen-len" data-gen-pane="chars"><span>长度</span><input type="range" min="8" max="64" value="16" data-gen-ctrl="length" aria-label="密码长度"><b data-gen-len-val>16</b></div>
+      <div class="gen-toggles" data-gen-pane="chars">
         <label class="gtoggle"><span class="switch"><input type="checkbox" checked data-gen-ctrl="upper"><span class="knob"></span></span>大写 A-Z</label>
         <label class="gtoggle"><span class="switch"><input type="checkbox" checked data-gen-ctrl="lower"><span class="knob"></span></span>小写 a-z</label>
         <label class="gtoggle"><span class="switch"><input type="checkbox" checked data-gen-ctrl="digits"><span class="knob"></span></span>数字 0-9</label>
         <label class="gtoggle"><span class="switch"><input type="checkbox" checked data-gen-ctrl="symbols"><span class="knob"></span></span>符号 !@#</label>
+        <label class="check" style="grid-column:1/-1"><input type="checkbox" data-gen-ctrl="exclude"><span>排除易混淆字符（I l 1 O 0）</span></label>
       </div>
-      <label class="check"><input type="checkbox" data-gen-ctrl="exclude"><span>排除易混淆字符（I l 1 O 0）</span></label>
+      <div class="gen-toggles" data-gen-pane="pass" hidden>
+        <div class="gen-len" style="grid-column:1/-1"><span>单词数</span><input type="range" min="3" max="10" value="5" data-gen-ctrl="words" aria-label="单词数量"><b data-gen-len-val>5</b></div>
+        <div class="gen-len" style="grid-column:1/-1"><span>分隔符</span>
+          <select data-gen-ctrl="sep" aria-label="单词分隔符">
+            <option value="-">连字符 -</option>
+            <option value="_">下划线 _</option>
+            <option value=".">点号 .</option>
+            <option value=" ">空格</option>
+            <option value="">无分隔</option>
+          </select>
+        </div>
+        <label class="gtoggle"><span class="switch"><input type="checkbox" checked data-gen-ctrl="cap"><span class="knob"></span></span>首字母大写</label>
+        <label class="gtoggle"><span class="switch"><input type="checkbox" data-gen-ctrl="num"><span class="knob"></span></span>末尾附加数字</label>
+      </div>
     </div>
     <div class="meter gen-strength"><div class="segs"><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div><span class="bits"></span><span class="mlabel"></span></div>
     ${embed ? `<div class="gen-use-row"><button type="button" class="btn btn-primary btn-sm" data-action="gen-use">使用此密码</button></div>` : ''}
@@ -1020,21 +1158,32 @@ function genHTML(embed){
 }
 function attachGen(box){
   if(!box._gen){
-    box._gen = { length:16, upper:true, lower:true, digits:true, symbols:true, exclude:false, value:'' };
+    box._gen = { mode:'chars', length:16, words:5, sep:'-', cap:true, num:false,
+                 upper:true, lower:true, digits:true, symbols:true, exclude:false, value:'' };
     box._gen.value = genPassword(box._gen);
   }
   renderGenBox(box);
 }
 function renderGenBox(box){
   const st = box._gen;
-  const s = passwordStrength(st.value);
+  const isPass = st.mode === 'pass';
+  box.querySelectorAll('[data-gen-pane]').forEach(p => p.hidden = p.dataset.genPane !== st.mode);
+  box.querySelectorAll('.gen-mode button').forEach(b => b.classList.toggle('sel', b.dataset.mode === st.mode));
+  box.querySelectorAll('[data-gen-len-val]').forEach(el => el.textContent = isPass ? st.words : st.length);
+  box.querySelectorAll('input[type=range]').forEach(r => {
+    const v = r.dataset.genCtrl === 'length' ? st.length : st.words;
+    r.value = v;
+    const pct = ((v - +r.min) / (+r.max - +r.min)) * 100;
+    r.style.background = `linear-gradient(90deg, var(--blue) ${pct}%, var(--soft2) ${pct}%)`;
+  });
+  ['upper','lower','digits','symbols','exclude','cap','num'].forEach(k => {
+    const el = box.querySelector(`[data-gen-ctrl=${k}]`);
+    if(el) el.checked = !!st[k];
+  });
+  const sep = box.querySelector('[data-gen-ctrl=sep]');
+  if(sep) sep.value = st.sep;
+  const s = isPass ? bitsToStrength(passEntropy(st)) : passwordStrength(st.value);
   box.querySelector('[data-gen-out]').textContent = st.value || '—';
-  box.querySelector('[data-gen-len-val]').textContent = st.length;
-  const range = box.querySelector('[data-gen-ctrl=length]');
-  range.value = st.length;
-  const pct = ((st.length - 8) / 56) * 100;
-  range.style.background = `linear-gradient(90deg, var(--blue) ${pct}%, var(--soft2) ${pct}%)`;
-  ['upper','lower','digits','symbols','exclude'].forEach(k => { box.querySelector(`[data-gen-ctrl=${k}]`).checked = !!st[k]; });
   const segs = box.querySelectorAll('.meter .seg');
   segs.forEach((seg,i) => seg.style.background = i < s.score ? s.color : 'var(--soft2)');
   const m = box.querySelector('.meter');
@@ -1045,7 +1194,7 @@ function renderGen(container){
   container.innerHTML = `<div class="gen-wrap row-in">
     <div class="gen-card">
       ${genHTML(false)}
-      <p class="gen-hint">根据 NIST SP 800-63B 指引，建议使用至少 15 位的随机密码；密钥由浏览器密码学安全随机数生成器（CSPRNG）产生，不会离开本机。</p>
+      <p class="gen-hint">随机字符模式由浏览器密码学安全随机数（CSPRNG）产生，根据 NIST SP 800-63B 指引建议至少 15 位；密码短语模式内置 EFF 短词库（1296 词），每个单词约 10.3 bit 熵，5 词约 52 bit，更适合记忆与口头转述。全部生成在本机完成，不会联网。</p>
     </div>
   </div>`;
   attachGen(container.querySelector('.gen'));
@@ -1140,6 +1289,13 @@ function renderSet(container){
         <div style="width:130px">${ddHTML('autolock', lockOpts, String(al))}</div></div>
       <div class="set-row"><div class="set-info"><b>修改主密码</b><span class="sub">更换用于加密全部数据的主密码</span></div>
         <button class="btn btn-sm" data-action="chgpass">修改</button></div>
+      <div class="set-row"><div class="set-info"><b>恢复码</b><span class="sub">${S.blob.rec ? '已启用 · 忘记主密码时可在解锁页使用；重新生成将使旧码立即失效' : '忘记主密码时的最后找回手段，生成后仅完整显示一次'}</span></div>
+        ${S.blob.rec
+          ? `<button class="btn btn-sm" data-action="rec-gen">重新生成</button><button class="btn btn-sm btn-danger" data-action="rec-disable">停用</button>`
+          : `<button class="btn btn-sm btn-primary" data-action="rec-gen">生成</button>`}</div>
+      <div class="set-row"><div class="set-info"><b>主密码提示</b><span class="sub">${S.blob.hint ? esc(S.blob.hint) + '（明文保存，解锁页可见）' : '以明文保存在本机，解锁页任何人可见，请勿包含敏感信息'}</span></div>
+        <button class="btn btn-sm" data-action="hint-set">${S.blob.hint ? '修改' : '设置'}</button>
+        ${S.blob.hint ? `<button class="btn btn-sm btn-danger" data-action="hint-clear">清除</button>` : ''}</div>
     </section>
     <section class="card row-in">
       <h3>${icon('tag',16)} 分类管理</h3>
@@ -1182,7 +1338,7 @@ function renderSet(container){
     </section>
     <section class="card row-in">
       <h3>${icon('download',16)} 备份</h3>
-      <div class="set-row"><div class="set-info"><b>导出加密备份</b><span class="sub">备份文件仍受主密码加密，可安全存放在任意位置</span></div>
+      <div class="set-row"><div class="set-info"><b>导出加密备份</b><span class="sub">备份文件仍受主密码加密，可安全存放在任意位置（内含主密码提示与恢复码信封，不含恢复码本身）</span></div>
         <button class="btn btn-sm" data-action="export">导出</button></div>
       <div class="set-row"><div class="set-info"><b>导入备份</b><span class="sub">将覆盖当前全部数据，之后需使用该备份的主密码解锁</span></div>
         <button class="btn btn-sm btn-warn" data-action="import-click">导入</button></div>
@@ -1240,6 +1396,22 @@ function openDetail(id){
         <span class="m-time">${icon('clock',13)} 更新于 ${fmtRel(e.updatedAt)}</span>
         <span class="strength-tag" style="color:${st.color}">强度：${st.label}</span>
       </div>
+      ${(e.history && e.history.length) ? `
+      <div class="m-hist">
+        <button type="button" class="hist-head" data-action="hist-toggle" aria-expanded="${S.histOpen}">
+          ${icon('clock',14)}<span>历史密码（${e.history.length}）</span>${icon('chev',14)}
+        </button>
+        <div class="hist-list"${S.histOpen ? '' : ' hidden'}>
+          ${e.history.map((h,i) => `
+          <div class="hist-row">
+            <span class="hist-time">${fmtRel(h.changedAt || 0)}</span>
+            <span class="hist-pw mono" id="hist-pw-${i}">${'•'.repeat(Math.min(String(h.password||'').length || 8, 16))}</span>
+            <button type="button" class="icon-btn" data-action="hist-reveal" data-idx="${i}" aria-label="显示历史密码">${icon('eye',15)}</button>
+            <button type="button" class="icon-btn" data-action="hist-copy" data-idx="${i}" aria-label="复制历史密码">${icon('copy',15)}</button>
+          </div>`).join('')}
+          <button type="button" class="btn btn-sm btn-danger hist-clear" data-action="hist-clear">${icon('trash',13)} 清空历史密码</button>
+        </div>
+      </div>` : ''}
     </div>
     <div class="m-foot">
       <button class="btn btn-danger" data-action="delete">${icon('trash',14)} 删除</button>
@@ -1330,6 +1502,38 @@ function openChangeMaster(){
       <button type="submit" class="btn btn-primary">确认修改</button>
     </div>
   </form>`);
+}
+function openRecShow(){
+  const code = S.recCodeShown || '';
+  openModal(`
+  <form class="modal" data-form="rec-show" role="dialog" aria-modal="true" aria-label="恢复码" autocomplete="off" style="max-width:460px">
+    <div class="m-head"><div class="m-title">${icon('shield',18)} 恢复码已生成</div><div class="grow"></div>
+      <button type="button" class="icon-btn" data-action="close-modal" aria-label="关闭">${icon('x',18)}</button></div>
+    <div class="m-body">
+      <p style="font-size:13px;color:var(--muted);line-height:1.7">忘记主密码时，可在解锁页用恢复码解锁并重设主密码。请抄写或打印后妥善保存（保险柜 / 密码本）。<b>恢复码只完整显示这一次</b>，之后只能重新生成（旧码立即失效）。</p>
+      <div class="rec-code">${esc(code)}</div>
+      <div><button type="button" class="btn btn-sm" data-action="rec-copy">${icon('copy',14)} 复制恢复码</button></div>
+      <label class="check ack"><input type="checkbox" id="rec-ack" required><span>我已将恢复码保存在安全的地方</span></label>
+    </div>
+    <div class="m-foot"><div class="grow"></div><button type="submit" class="btn btn-primary">完成</button></div>
+  </form>`);
+}
+function openRecReset(){
+  S.recResetPending = true;
+  openModal(`
+  <form class="modal" data-form="recpass" role="dialog" aria-modal="true" aria-label="设置新的主密码" autocomplete="off" style="max-width:440px">
+    <div class="m-head"><div class="m-title">设置新的主密码</div><div class="grow"></div>
+      <button type="button" class="icon-btn" data-action="close-modal" aria-label="关闭">${icon('x',18)}</button></div>
+    <div class="m-body">
+      <p style="font-size:13px;color:var(--muted);line-height:1.7">已通过恢复码解锁。请设置新的主密码，恢复码保持有效。</p>
+      <div class="frow"><label class="flabel">新主密码</label><input id="rp-new" type="password" data-strength="rp-meter" autocomplete="new-password">
+        <div class="meter" id="rp-meter"><div class="segs"><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div><span class="mlabel">—</span></div></div>
+      <div class="frow"><label class="flabel">确认新主密码</label><input id="rp-new2" type="password" autocomplete="new-password"></div>
+      <div class="err" id="rp-err" hidden></div>
+    </div>
+    <div class="m-foot"><div class="grow"></div><button type="submit" class="btn btn-primary">确认</button></div>
+  </form>`);
+  setTimeout(() => $('#rp-new').focus(), 60);
 }
 
 /* ================= 自定义下拉组件 ================= */
@@ -1428,7 +1632,9 @@ function handleImportFile(input){
     let obj;
     try{ obj = JSON.parse(txt); }catch{ toast('文件格式错误', 'err'); return; }
     const vault = obj?.vault ?? obj;
-    if(!vault?.kdf?.salt || !vault?.iv || !vault?.data){ toast('不是有效的 MemKey 备份文件', 'err'); return; }
+    const isV2 = !!(vault?.wpw?.iv && vault?.wpw?.data && vault?.vault?.iv && vault?.vault?.data);
+    const isV1 = !!(vault?.iv && vault?.data);
+    if(!vault?.kdf?.salt || (!isV1 && !isV2)){ toast('不是有效的 MemKey 备份文件', 'err'); return; }
     S.pendingImport = vault;
     confirmModal({
       title: '导入备份',
@@ -1436,6 +1642,16 @@ function handleImportFile(input){
       okText: '覆盖并导入', danger: true, action: 'import-confirm',
     });
   }).catch(() => toast('无法读取文件', 'err'));
+}
+async function genAndShowRecCode(){
+  try{
+    const code = genRecCode();
+    S.blob.rec = await makeRecEnvelope(code, S.keyBits);
+    await persist();
+    S.recCodeShown = code;
+    renderSet($('#view .view-inner'));
+    openRecShow();
+  }catch(ex){ console.error(ex); toast('生成失败：' + (ex.message || ex), 'err'); }
 }
 function enterApp(){
   S.vault.settings ??= { autoLock:5 };
@@ -1735,6 +1951,43 @@ document.addEventListener('click', async e => {
       t.innerHTML = icon(showing ? 'eyeoff' : 'eye', 16);
       break;
     }
+    case 'hist-toggle': {
+      const history = t.closest('.m-hist');
+      const list = history?.querySelector('.hist-list');
+      if(!history || !list) break;
+      S.histOpen = !S.histOpen;
+      t.setAttribute('aria-expanded', String(S.histOpen));
+      list.hidden = !S.histOpen;
+      break;
+    }
+    case 'hist-reveal': {
+      const en = findEntry(S.detail);
+      const i = +t.dataset.idx;
+      const span = document.getElementById('hist-pw-' + i);
+      const h = en?.history?.[i];
+      if(!span || !h) break;
+      const showing = span.classList.toggle('revealed');
+      span.textContent = showing ? h.password : '•'.repeat(Math.min(String(h.password||'').length || 8, 16));
+      t.innerHTML = icon(showing ? 'eyeoff' : 'eye', 15);
+      break;
+    }
+    case 'hist-copy': {
+      const h = findEntry(S.detail)?.history?.[+t.dataset.idx];
+      if(h) doCopy(h.password, '历史密码', true);
+      break;
+    }
+    case 'hist-clear':
+      confirmModal({ title:'清空历史密码', message:'将删除该账号保存的全部历史密码，不可恢复。', okText:'清空', danger:true, action:'hist-clear-confirm' });
+      break;
+    case 'hist-clear-confirm': {
+      const hid = S.detail;
+      const en = hid ? findEntry(hid) : null;
+      if(en){ delete en.history; await persist(); }
+      closeModal();
+      if(hid) openDetail(hid);
+      toast('历史密码已清空');
+      break;
+    }
     case 'eye': {
       const input = document.getElementById(t.dataset.target);
       if(!input) break;
@@ -1759,6 +2012,14 @@ document.addEventListener('click', async e => {
       if(!box) break;
       box.hidden = !box.hidden;
       if(!box.hidden){ box._gen.value = genPassword(box._gen); renderGenBox(box); }
+      break;
+    }
+    case 'gen-mode': {
+      const box = t.closest('.gen');
+      if(!box?._gen || box._gen.mode === t.dataset.mode) break;
+      box._gen.mode = t.dataset.mode;
+      box._gen.value = genPassword(box._gen);
+      renderGenBox(box);
       break;
     }
     case 'gen-regen': {
@@ -1787,11 +2048,65 @@ document.addEventListener('click', async e => {
     case 'import-confirm': {
       if(!S.pendingImport) break;
       await apiPutVault(S.pendingImport);
+      S.blob = S.pendingImport; // 同步内存外壳，否则解锁仍按旧盐派生密钥
       S.pendingImport = null;
       lockNow('备份已导入，请输入该备份的主密码解锁');
       break;
     }
     case 'chgpass': openChangeMaster(); break;
+    case 'rec-gen': {
+      if(S.blob.rec) confirmModal({ title:'重新生成恢复码', message:'将生成新的恢复码，旧恢复码立即失效。继续吗？', okText:'重新生成', action:'rec-gen-confirm' });
+      else await genAndShowRecCode();
+      break;
+    }
+    case 'rec-gen-confirm': await genAndShowRecCode(); break;
+    case 'rec-disable':
+      confirmModal({ title:'停用恢复码', message:'停用后，忘记主密码将无法通过恢复码找回（重置为唯一出口）。确定停用吗？', okText:'停用', danger:true, action:'rec-disable-confirm' });
+      break;
+    case 'rec-disable-confirm':
+      delete S.blob.rec;
+      await persist();
+      closeModal();
+      updateLockExtras();
+      renderSet($('#view .view-inner'));
+      toast('恢复码已停用');
+      break;
+    case 'rec-copy': doCopy(S.recCodeShown || '', '恢复码', true); break;
+    case 'rec-unlock': setRecMode(!S.recMode); break;
+    case 'show-hint':
+      openModal(`
+      <div class="modal" role="dialog" aria-modal="true" aria-label="主密码提示" style="max-width:400px">
+        <div class="m-body" style="padding-top:22px">
+          <div class="m-title" style="font-size:15.5px">主密码提示</div>
+          <p style="font-size:14px;line-height:1.7;word-break:break-word">${esc(S.blob?.hint || '')}</p>
+          <p style="font-size:12px;color:var(--faint)">提示为明文内容，仅供回忆参考。</p>
+        </div>
+        <div class="m-foot"><div class="grow"></div><button class="btn" data-action="close-modal">关闭</button></div>
+      </div>`);
+      break;
+    case 'hint-set':
+      openModal(`
+      <form class="modal" data-form="hint" role="dialog" aria-modal="true" aria-label="主密码提示" autocomplete="off" style="max-width:440px">
+        <div class="m-head"><div class="m-title">主密码提示</div><div class="grow"></div>
+          <button type="button" class="icon-btn" data-action="close-modal" aria-label="关闭">${icon('x',18)}</button></div>
+        <div class="m-body">
+          <p style="font-size:13px;color:var(--muted);line-height:1.7">提示以<b>明文</b>保存在本机密码库外壳中，解锁页任何人都可查看。请勿写入能直接推出密码的内容（例如完整密码本身）。</p>
+          <div class="frow"><label class="flabel">提示内容</label><input type="text" id="hint-input" maxlength="50" value="${esc(S.blob.hint || '')}" placeholder="如：外婆家的门牌号"></div>
+        </div>
+        <div class="m-foot"><div class="grow"></div><button type="button" class="btn" data-action="close-modal">取消</button><button type="submit" class="btn btn-primary">保存</button></div>
+      </form>`);
+      break;
+    case 'hint-clear':
+      confirmModal({ title:'清除主密码提示', message:'清除后解锁页将不再显示提示。', okText:'清除', danger:true, action:'hint-clear-confirm' });
+      break;
+    case 'hint-clear-confirm':
+      delete S.blob.hint;
+      await persist();
+      closeModal();
+      updateLockExtras();
+      renderSet($('#view .view-inner'));
+      toast('主密码提示已清除');
+      break;
     case 'wipe':
       confirmModal({ title:'清除所有数据', message:'将删除本机密码库文件（data/vault.enc）与全部数据，且不可恢复。如果没有导出过备份，所有账号记录将永久丢失。', okText:'确认清除', danger:true, action:'wipe-confirm' });
       break;
@@ -1816,35 +2131,77 @@ document.addEventListener('submit', async e => {
     const btn = $('#su-btn');
     busy(btn, true, '正在创建…');
     const salt = crypto.getRandomValues(new Uint8Array(16));
-    S.key = await deriveKey(pw, salt, KDF_ITERS);
+    const pwBits = await deriveMasterBits(pw, salt, KDF_ITERS);
+    const kpw = await masterKeyFromBits(pwBits);
+    const dkBits = crypto.getRandomValues(new Uint8Array(32));
+    const hint = ($('#su-hint')?.value || '').trim().slice(0, 50);
+    const recCode = genRecCode();
+    const extras = { rec: await makeRecEnvelope(recCode, dkBits) };
+    if(hint) extras.hint = hint;
+    S.blob = makeBlobV2({ name:'PBKDF2-SHA256', iterations:KDF_ITERS, salt:b64(salt) }, await encryptJSON(kpw, { dk: b64(dkBits) }), extras);
+    S.key = await masterKeyFromBits(dkBits);
+    S.keyBits = dkBits;
     S.vault = { entries:[], settings:{ autoLock:5 }, meta:{ createdAt:Date.now() }, categories: CATS.map(c => ({ ...c })), tags:[] };
-    S.blob = { kdf:{ name:'PBKDF2-SHA256', iterations:KDF_ITERS, salt:b64(salt) } };
     await persist();
     busy(btn, false);
     enterApp();
     toast('保险库已创建，数据保存在本机文件');
+    S.recCodeShown = recCode;
+    openRecShow();
   }
   else if(form.dataset.form === 'lock'){
-    const pw = $('#lk-pw').value;
-    if(!pw) return;
+    const pwInput = $('#lk-pw');
+    const raw = pwInput.value;
+    if(!raw) return;
     const btn = $('#lk-btn'), err = $('#lk-err');
-    busy(btn, true, '解锁中…');
+    busy(btn, true, S.recMode ? '验证恢复码…' : '解锁中…');
     err.hidden = true;
     try{
-      const key = await deriveKey(pw, unb64(S.blob.kdf.salt), S.blob.kdf.iterations);
-      S.vault = await decryptJSON(key, S.blob);
-      S.vault.categories ??= CATS.map(c => ({ ...c })); // 老数据迁移：初始化默认分类
-      ensureTagCatalog();
-      S.key = key;
-      busy(btn, false);
-      $('#lk-pw').value = '';
-      $('#lk-note').hidden = true;
-      enterApp();
+      if(S.recMode){
+        // 恢复码路径：解开 DK 包裹，直接得到数据密钥
+        const wrap = await unwrapRec(raw, S.blob.rec);
+        const dkBits = unb64(wrap.dk);
+        const dk = await masterKeyFromBits(dkBits);
+        S.vault = await decryptJSON(dk, S.blob.vault);
+        S.key = dk; S.keyBits = dkBits;
+        migrateVault();
+        busy(btn, false);
+        setRecMode(false);
+        $('#lk-note').hidden = true;
+        enterApp();
+        openRecReset();
+      } else {
+        const pwBits = await deriveMasterBits(raw, unb64(S.blob.kdf.salt), S.blob.kdf.iterations);
+        const kpw = await masterKeyFromBits(pwBits);
+        let vault = null, dkBits;
+        if(S.blob.vault && S.blob.wpw){
+          // v2：先解开主密码包裹的数据密钥，再解密密码库
+          const wrap = await decryptJSON(kpw, S.blob.wpw);
+          dkBits = unb64(wrap.dk);
+        } else {
+          // v1 旧格式：整库直接由主密码密钥加密
+          vault = await decryptJSON(kpw, S.blob);
+          dkBits = crypto.getRandomValues(new Uint8Array(32));
+        }
+        const dk = await masterKeyFromBits(dkBits);
+        if(!vault) vault = await decryptJSON(dk, S.blob.vault);
+        S.key = dk; S.keyBits = dkBits; S.vault = vault;
+        migrateVault();
+        if(!S.blob.vault){
+          // v1 → v2 信封升级：补写 wpw 与 vault，下次解锁走新格式
+          S.blob = makeBlobV2(S.blob.kdf, await encryptJSON(kpw, { dk: b64(dkBits) }));
+          try{ await persist(); }catch{} // 升级写盘失败不影响本次使用，下次解锁会重试
+        }
+        busy(btn, false);
+        pwInput.value = '';
+        $('#lk-note').hidden = true;
+        enterApp();
+      }
     }catch{
       busy(btn, false);
-      err.textContent = '主密码不正确，请重试';
+      err.textContent = S.recMode ? '恢复码不正确，请重试' : '主密码不正确，请重试';
       err.hidden = false;
-      const el = $('#lk-pw');
+      const el = pwInput;
       el.value = ''; el.classList.add('shake'); setTimeout(()=>el.classList.remove('shake'),420);
       el.focus();
     }
@@ -1872,7 +2229,15 @@ document.addEventListener('submit', async e => {
       createdAt: old ? old.createdAt : now,
       updatedAt: now,
     };
-    if(old){ Object.assign(old, entry); }
+    if(old){
+      // 密码变更时保留旧密码到历史（新密码留空视为清除，不记录）
+      if(old.password && entry.password && entry.password !== old.password){
+        old.history ??= [];
+        old.history.unshift({ password: old.password, changedAt: old.updatedAt || old.createdAt || now });
+        if(old.history.length > HIST_MAX) old.history.length = HIST_MAX;
+      }
+      Object.assign(old, entry);
+    }
     else S.vault.entries.push(entry);
     tags.forEach(rememberTag);
     const saveBtn = form.querySelector('[type=submit]');
@@ -1914,18 +2279,52 @@ document.addEventListener('submit', async e => {
     const btn = form.querySelector('[type=submit]');
     busy(btn, true, '验证中…');
     try{
-      const k = await deriveKey(old_, unb64(S.blob.kdf.salt), S.blob.kdf.iterations);
-      await decryptJSON(k, S.blob); // 验证旧密码
+      const kOld = await masterKeyFromBits(await deriveMasterBits(old_, unb64(S.blob.kdf.salt), S.blob.kdf.iterations));
+      await decryptJSON(kOld, S.blob.wpw); // 验证旧密码：能否解开数据密钥包裹
     }catch{ busy(btn, false); return fail('当前主密码不正确'); }
     busy(btn, true, '重新加密…');
     const salt = crypto.getRandomValues(new Uint8Array(16));
+    const kNew = await masterKeyFromBits(await deriveMasterBits(nw, salt, KDF_ITERS));
     S.blob.kdf.salt = b64(salt);
     S.blob.kdf.iterations = KDF_ITERS;
-    S.key = await deriveKey(nw, salt, KDF_ITERS);
+    S.blob.wpw = await encryptJSON(kNew, { dk: b64(S.keyBits) }); // 重包裹数据密钥，库密文不变
     await persist();
     busy(btn, false);
     closeModal();
     toast('主密码已更新，后续请使用新密码解锁');
+  }
+  else if(form.dataset.form === 'rec-show'){
+    S.recCodeShown = null;
+    closeModal();
+  }
+  else if(form.dataset.form === 'recpass'){
+    const nw = $('#rp-new').value, nw2 = $('#rp-new2').value;
+    const err = $('#rp-err');
+    const fail = m => { err.textContent = m; err.hidden = false; };
+    err.hidden = true;
+    if(nw.length < 8) return fail('新主密码至少需要 8 位');
+    if(nw !== nw2) return fail('两次输入的新密码不一致');
+    const btn = form.querySelector('[type=submit]');
+    busy(btn, true, '重新加密…');
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const kpw = await masterKeyFromBits(await deriveMasterBits(nw, salt, KDF_ITERS));
+    S.blob.kdf.salt = b64(salt);
+    S.blob.kdf.iterations = KDF_ITERS;
+    S.blob.wpw = await encryptJSON(kpw, { dk: b64(S.keyBits) });
+    await persist();
+    S.recResetPending = false;
+    busy(btn, false);
+    closeModal();
+    toast('主密码已重设，恢复码仍可继续使用');
+  }
+  else if(form.dataset.form === 'hint'){
+    const v = ($('#hint-input')?.value || '').trim().slice(0, 50);
+    if(v) S.blob.hint = v; else delete S.blob.hint;
+    await persist();
+    closeModal();
+    updateLockExtras();
+    renderSet($('#view .view-inner'));
+    toast(v ? '主密码提示已保存' : '主密码提示已清除');
   }
   }catch(ex){ console.error(ex); toast('操作失败：' + (ex.message || ex), 'err'); }
 });
@@ -1956,6 +2355,8 @@ function updateGen(t){
   if(!box || !box._gen) return;
   const st = box._gen, k = t.dataset.genCtrl;
   if(k === 'length') st.length = +t.value;
+  else if(k === 'words') st.words = +t.value;
+  else if(t.type === 'select-one') st[k] = t.value;
   else{
     st[k] = t.checked;
     if(['upper','lower','digits','symbols'].includes(k) && !st.upper && !st.lower && !st.digits && !st.symbols){
@@ -2127,6 +2528,7 @@ setInterval(() => {
     return;
   }
   S.blob = blob;
+  updateLockExtras();
   showScreen('scr-lock');
   setTimeout(() => $('#lk-pw').focus(), 80);
 })().catch(err => {

@@ -46,10 +46,16 @@ function readBody(req, limit) {
 }
 
 // 校验密文结构（只认格式，不触碰内容）
+// v1：整库由主密码密钥加密（iv + data）
+// v2：数据密钥 DK 加密整库（vault），主密码包裹 DK（wpw）；恢复码信封（rec）与提示（hint）为可选外壳字段
 function isValidVault(obj) {
-  return !!obj && typeof obj === 'object'
-    && obj.kdf && typeof obj.kdf.salt === 'string'
-    && typeof obj.iv === 'string' && typeof obj.data === 'string';
+  if (!obj || typeof obj !== 'object'
+    || !obj.kdf || typeof obj.kdf.salt !== 'string') return false;
+  if (obj.vault || obj.wpw) {
+    return !!(obj.wpw && typeof obj.wpw.iv === 'string' && typeof obj.wpw.data === 'string'
+      && obj.vault && typeof obj.vault.iv === 'string' && typeof obj.vault.data === 'string');
+  }
+  return typeof obj.iv === 'string' && typeof obj.data === 'string';
 }
 
 const server = http.createServer(async (req, res) => {
@@ -93,7 +99,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/meta') {
       return sendJSON(res, 200, {
         app: 'MemKey',
-        version: '1.3.0',
+        version: '1.4.0',
         vaultFile: VAULT_FILE,
         url: `http://localhost:${PORT}`,
       });
