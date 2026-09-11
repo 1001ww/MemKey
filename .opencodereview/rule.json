@@ -1,0 +1,14 @@
+{
+  "rules": [
+    {
+      "path": "public/index.html",
+      "merge_system_rule": true,
+      "rule": "MemKey 前端是零知识密码库：加解密只在浏览器 crypto.subtle 完成。写入 innerHTML 的用户/导入字段必须经 esc()。persist() 整体序列化 S.vault，不要再要求手工枚举 categories/tags。主密码提示 hint 明文是产品设计。恢复码 20 位 × 31 字符表、PBKDF2 100000 轮是有意为之。空密码不得计入重复使用。弹窗 closeModal 用世代号避免延迟清空误伤新弹窗。账号列表行需可键盘激活。标签建议菜单 mousedown 需避免 blur 提交半成品。恢复码生成/停用在 persist 失败时必须回滚 S.blob.rec。"
+    },
+    {
+      "path": "server.js",
+      "merge_system_rule": true,
+      "rule": "服务必须只监听 127.0.0.1。Host 仅允许 localhost 与 127.0.0.1。不得解密 vault。GET /api/vault：ENOENT 返回 404 {exists:false}，其它读/JSON 错误返回 500，禁止把损坏文件报成空库。URL 解析失败返回 400，禁止把异常抛出 async handler。decodeURIComponent 失败返回 400。请求体超限应 413。PUT 写入须 tmp+fsync+rename。静态路径必须限制在 public/。"
+    }
+  ]
+}

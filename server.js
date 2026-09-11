@@ -34,14 +34,24 @@ function sendJSON(res, code, obj) {
 function readBody(req, limit) {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let settled = false;
     const chunks = [];
+    const fail = err => { if (settled) return; settled = true; reject(err); };
     req.on('data', c => {
+      if (settled) return;
       size += c.length;
-      if (size > limit) { reject(new Error('too large')); req.destroy(); return; }
+      if (size > limit) {
+        const e = new Error('too large');
+        e.statusCode = 413;
+        req.removeAllListeners('data');
+        req.resume();
+        fail(e);
+        return;
+      }
       chunks.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
+    req.on('end', () => { if (!settled) { settled = true; resolve(Buffer.concat(chunks).toString('utf8')); } });
+    req.on('error', fail);
   });
 }
 
@@ -63,17 +73,22 @@ const server = http.createServer(async (req, res) => {
   const host = (req.headers.host || '').split(':')[0];
   if (host !== 'localhost' && host !== '127.0.0.1') return sendJSON(res, 403, { error: 'forbidden host' });
 
-  const url = new URL(req.url, `http://${req.headers.host}`);
-
   try {
+    let url;
+    try {
+      url = new URL(req.url, `http://${req.headers.host}`);
+    } catch {
+      return sendJSON(res, 400, { error: 'bad request' });
+    }
     /* ---------- 密文文件 API ---------- */
     if (url.pathname === '/api/vault') {
       if (req.method === 'GET') {
         try {
           const raw = fs.readFileSync(VAULT_FILE, 'utf8');
           return sendJSON(res, 200, JSON.parse(raw));
-        } catch {
-          return sendJSON(res, 404, { exists: false });
+        } catch (err) {
+          if (err.code === 'ENOENT') return sendJSON(res, 404, { exists: false });
+          return sendJSON(res, 500, { error: 'vault read failed' });
         }
       }
       if (req.method === 'PUT') {
@@ -82,10 +97,20 @@ const server = http.createServer(async (req, res) => {
         try { obj = JSON.parse(body); } catch { return sendJSON(res, 400, { error: 'invalid json' }); }
         if (!isValidVault(obj)) return sendJSON(res, 400, { error: 'invalid vault format' });
         fs.mkdirSync(DATA_DIR, { recursive: true });
-        // 原子写入：先写临时文件再重命名，避免写一半损坏
+        // 原子写入：先写临时文件并 fsync，再重命名，避免进程中断或掉电留下半截文件
         const tmp = VAULT_FILE + '.tmp';
-        fs.writeFileSync(tmp, JSON.stringify(obj));
+        const fd = fs.openSync(tmp, 'w');
+        try {
+          fs.writeSync(fd, JSON.stringify(obj));
+          fs.fsyncSync(fd);
+        } finally {
+          fs.closeSync(fd);
+        }
         fs.renameSync(tmp, VAULT_FILE);
+        try {
+          const dirFd = fs.openSync(DATA_DIR, 'r');
+          try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+        } catch {}
         return sendJSON(res, 200, { ok: true });
       }
       if (req.method === 'DELETE') {
@@ -99,14 +124,17 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/meta') {
       return sendJSON(res, 200, {
         app: 'MemKey',
-        version: '1.4.1',
+        version: '1.4.2',
         vaultFile: VAULT_FILE,
         url: `http://localhost:${PORT}`,
       });
     }
 
     /* ---------- 静态文件 ---------- */
-    let p = url.pathname === '/' ? '/index.html' : decodeURIComponent(url.pathname);
+    let rawPath = url.pathname;
+    try { rawPath = decodeURIComponent(rawPath); }
+    catch { return sendJSON(res, 400, { error: 'bad request path' }); }
+    const p = rawPath === '/' ? '/index.html' : rawPath;
     const file = path.normalize(path.join(PUBLIC_DIR, p));
     if (!file.startsWith(PUBLIC_DIR + path.sep) && file !== PUBLIC_DIR) return sendJSON(res, 403, { error: 'forbidden' });
     fs.readFile(file, (err, buf) => {
@@ -118,7 +146,7 @@ const server = http.createServer(async (req, res) => {
       res.end(buf);
     });
   } catch (err) {
-    sendJSON(res, 500, { error: err.message || 'internal error' });
+    sendJSON(res, err.statusCode || 500, { error: err.message || 'internal error' });
   }
 });
 

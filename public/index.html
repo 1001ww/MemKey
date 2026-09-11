@@ -238,6 +238,7 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
   transition:box-shadow .14s,border-color .14s;
 }
 .entry:hover{ border-color:var(--line-strong); box-shadow:0 2px 4px rgba(27,37,64,.05), 0 14px 32px -16px rgba(27,37,64,.2) }
+.entry:focus-visible{ outline:2px solid var(--blue); outline-offset:2px }
 .avatar{
   width:38px; height:38px; border-radius:10px; display:grid; place-items:center;
   font-weight:600; font-size:15.5px; flex:none;
@@ -900,6 +901,7 @@ function toast(msg, type='ok'){
 function openModal(html){
   stopTotpTick();
   const root = $('#modal-root');
+  root.dataset.modalGen = String((+root.dataset.modalGen || 0) + 1);
   root.innerHTML = `<div class="modal-backdrop">${html}</div>`;
   root.hidden = false;
   const bd = root.firstElementChild;
@@ -921,7 +923,11 @@ function closeModal(){
   // 清除残留文档选区：弹窗 DOM 移除后焦点回落 BODY，行内残留的折叠选区会在列表文本上渲染闪烁插入符
   try{ document.getSelection().removeAllRanges(); }catch{}
   bd.classList.remove('show');
-  setTimeout(() => { root.innerHTML = ''; root.hidden = true; }, 190);
+  const gen = root.dataset.modalGen;
+  setTimeout(() => {
+    if(root.dataset.modalGen !== gen || root.firstElementChild !== bd) return;
+    root.innerHTML = ''; root.hidden = true;
+  }, 190);
 }
 function confirmModal({ title, message, okText='确定', danger=false, action, dataId='' }){
   openModal(`
@@ -1073,7 +1079,7 @@ function renderApp(){
 const rowHTML = (e, i) => {
   const h = hue(e.title || '?');
   const st = passwordStrength(e.password);
-  return `<div class="entry row-in" style="animation-delay:${Math.min(i*18,220)}ms" data-action="open-detail" data-id="${esc(e.id)}" aria-label="${esc(e.title)}">
+  return `<div class="entry row-in" style="animation-delay:${Math.min(i*18,220)}ms" role="button" tabindex="0" data-action="open-detail" data-id="${esc(e.id)}" aria-label="${esc(e.title)}">
     <div class="avatar" style="background:hsl(${h},75%,93%);color:hsl(${h},52%,38%);border:1px solid hsl(${h},50%,88%)">${esc(String(e.title||'?').trim().charAt(0).toUpperCase())}</div>
     <div class="row-main">
       <div class="row-title">${esc(e.title)}</div>
@@ -1205,7 +1211,7 @@ function analyze(){
   const es = S.vault.entries;
   const weak = es.filter(e => passwordStrength(e.password).score <= 1 || e.password.length < 10);
   const byPw = {};
-  es.forEach(e => { (byPw[e.password] ||= []).push(e); });
+  es.forEach(e => { if(!e.password) return; (byPw[e.password] ||= []).push(e); });
   const reusedGroups = Object.values(byPw).filter(a => a.length > 1);
   const reusedCount = reusedGroups.reduce((s,a) => s + a.length, 0);
   return { weak, reusedGroups, reusedCount };
@@ -1644,10 +1650,17 @@ function handleImportFile(input){
   }).catch(() => toast('无法读取文件', 'err'));
 }
 async function genAndShowRecCode(){
+  const prevRec = S.blob.rec;
   try{
     const code = genRecCode();
     S.blob.rec = await makeRecEnvelope(code, S.keyBits);
-    await persist();
+    try{
+      await persist();
+    }catch(ex){
+      if(prevRec === undefined) delete S.blob.rec;
+      else S.blob.rec = prevRec;
+      throw ex;
+    }
     S.recCodeShown = code;
     renderSet($('#view .view-inner'));
     openRecShow();
@@ -1983,8 +1996,9 @@ document.addEventListener('click', async e => {
       const hid = S.detail;
       const en = hid ? findEntry(hid) : null;
       if(en){ delete en.history; await persist(); }
-      closeModal();
+      S.histOpen = false;
       if(hid) openDetail(hid);
+      else closeModal();
       toast('历史密码已清空');
       break;
     }
@@ -2063,14 +2077,21 @@ document.addEventListener('click', async e => {
     case 'rec-disable':
       confirmModal({ title:'停用恢复码', message:'停用后，忘记主密码将无法通过恢复码找回（重置为唯一出口）。确定停用吗？', okText:'停用', danger:true, action:'rec-disable-confirm' });
       break;
-    case 'rec-disable-confirm':
+    case 'rec-disable-confirm': {
+      const prevRec = S.blob.rec;
       delete S.blob.rec;
-      await persist();
+      try{
+        await persist();
+      }catch(ex){
+        if(prevRec !== undefined) S.blob.rec = prevRec;
+        throw ex;
+      }
       closeModal();
       updateLockExtras();
       renderSet($('#view .view-inner'));
       toast('恢复码已停用');
       break;
+    }
     case 'rec-copy': doCopy(S.recCodeShown || '', '恢复码', true); break;
     case 'rec-unlock': setRecMode(!S.recMode); break;
     case 'show-hint':
@@ -2427,6 +2448,10 @@ document.addEventListener('drop', async e => {
 });
 
 /* ================= 事件：标签输入 / 键盘 ================= */
+document.addEventListener('mousedown', e => {
+  // 点选建议项时避免 input blur 触发 change，把半成品提交成新标签
+  if(e.target.closest('#tag-menu')) e.preventDefault();
+});
 document.addEventListener('input', e => {
   if(e.target.id === 'tag-input') setTagPickerOpen(true);
 });
@@ -2521,7 +2546,13 @@ setInterval(() => {
   const bv = document.querySelector('.bver');
   if(bv && S.meta?.version) bv.textContent = 'v' + S.meta.version;
   let blob = null;
-  try{ blob = await apiGetVault(); }catch{}
+  try{ blob = await apiGetVault(); }
+  catch(ex){
+    console.error(ex);
+    document.body.innerHTML = `<div style="display:grid;place-items:center;height:100vh;color:#DC2626;font-family:sans-serif;text-align:center;padding:20px">
+      <div><h2>无法读取密码库</h2><p style="color:#5D6B85;margin-top:8px">本机密文文件存在但读取失败，未进入创建流程以免覆盖现有数据。请检查 data/vault.enc 权限后刷新。</p></div></div>`;
+    return;
+  }
   if(!blob){
     showScreen('scr-setup');
     setTimeout(() => $('#su-pw').focus(), 80);
