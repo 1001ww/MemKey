@@ -116,7 +116,14 @@ function snapshotId() {
   return new Date().toISOString().replace(/[-:.]/g, '') + '-' + crypto.randomBytes(4).toString('hex');
 }
 
-// 快照文件名双重白名单：id 必须匹配严格格式，且「id.enc」必须真实出现在
+// 生成路径：仅接受内部 snapshotId() 生成的 id（格式白名单），用于新建快照文件
+function snapshotPath(id) {
+  return (typeof id === 'string' && SNAP_ID_RE.test(id))
+    ? path.join(SNAP_DIR, `${id}.enc`)
+    : null;
+}
+
+// 校验外部 id（恢复接口）：id 必须匹配严格格式，且「id.enc」必须真实出现在
 // readdir 的目录清单中（清单条目不可能含路径分隔符），因此不存在路径穿越可能
 function snapshotFile(id) {
   if (typeof id !== 'string' || !SNAP_ID_RE.test(id)) return null;
@@ -156,7 +163,8 @@ function pruneSnapshots() {
 
 function snapshotCurrent(current) {
   if (!current) return null;
-  const file = snapshotFile(snapshotId());
+  const file = snapshotPath(snapshotId());
+  if (!file) throw new Error('snapshot id invalid');
   writeAtomic(file, current.raw);
   pruneSnapshots();
   return path.basename(file, '.enc');
@@ -251,7 +259,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/meta') {
       return sendJSON(res, 200, {
         app: 'MemKey',
-        version: '1.5.0',
+        version: '1.5.1',
         vaultFile: VAULT_FILE,
         url: `http://localhost:${PORT}`,
       });
