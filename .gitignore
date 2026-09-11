@@ -11,3 +11,6 @@ Desktop.ini
 
 # ZCode 工作区
 .zcode/
+
+# 代码审阅规则与背景（仅本机使用）
+.opencodereview/
