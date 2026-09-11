@@ -313,10 +313,19 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
 .tag-empty{ padding:9px; color:var(--faint); font-size:12.5px; text-align:center }
 .row-tags{ font-size:11.5px; color:var(--faint); max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:none }
 
-.stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:18px }
+.stats{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:14px; margin-bottom:18px }
 .stat{ background:var(--card); border:1px solid var(--line); border-radius:var(--rad); padding:16px 18px; box-shadow:var(--shadow-card) }
 .stat .num{ font-size:30px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.15 }
 .stat .sl{ font-size:12.5px; color:var(--muted); margin-top:3px }
+.health-card{ background:var(--card); border:1px solid var(--line); border-radius:var(--rad); padding:18px 20px; margin-bottom:16px; box-shadow:var(--shadow-card); display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap }
+.health-score{ font-size:42px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1; min-width:84px }
+.health-meta b{ display:block; font-size:15px; margin-bottom:6px }
+.health-meta p, .health-meta li{ font-size:13px; color:var(--muted); line-height:1.65 }
+.health-meta ul{ margin:6px 0 0 18px }
+.hibp-bar{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:4px 0 16px }
+.hibp-bar .sub{ font-size:12.5px; color:var(--muted) }
+.progress-line{ height:8px; background:var(--soft2); border-radius:99px; overflow:hidden; margin:8px 0 14px }
+.progress-line > i{ display:block; height:100%; width:0; background:var(--blue); border-radius:99px }
 .sec-h{ font-size:13.5px; font-weight:600; margin:20px 0 10px; display:flex; align-items:center; gap:7px }
 .sec-h svg{ color:var(--red) }
 .sec-h.good svg{ color:var(--green) }
@@ -566,12 +575,13 @@ kbd{ font:11px var(--mono); color:var(--faint); border:1px solid var(--line); bo
 <div id="modal-root" hidden></div>
 <div id="toast-root"></div>
 <input type="file" id="file-import" accept="application/json,.json" hidden>
+<input type="file" id="file-hibp" accept=".txt,text/plain" hidden>
 
+<script src="/vault-crypto.js"></script>
 <script>
 'use strict';
 /* ================= 工具 ================= */
 const $ = s => document.querySelector(s);
-const KDF_ITERS = 600000;
 const CATS = [
   { id:'social',  label:'社交', icon:'at' },
   { id:'work',    label:'工作', icon:'briefcase' },
@@ -625,10 +635,8 @@ function applyTagMerge(from, to){
   if(S.tag === from) S.tag = to;
   return { ok:true };
 }
-const enc = new TextEncoder(), dec = new TextDecoder();
+// enc/dec/b64/unb64/KDF_ITERS 与加密核心、恢复码、TOTP 实现见 public/vault-crypto.js（先于本脚本加载，全局词法绑定）
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const b64 = buf => { const u = new Uint8Array(buf); let s = ''; for(let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); };
-const unb64 = s => { const bin = atob(s), u = new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return u; };
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxxyxxx'.replace(/x|y/g, c => { const r = crypto.getRandomValues(new Uint8Array(1))[0]%16; return (c==='x'?r:(r&3|8)).toString(16); }) + Date.now().toString(16));
 const hue = str => { let h = 0; for(const c of String(str||'?')) h = (h*31 + c.charCodeAt(0)) >>> 0; return h % 360; };
 function fmtRel(ts){
@@ -680,99 +688,8 @@ const I = {
 };
 const icon = (n, s=18) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]||''}</svg>`;
 
-/* ================= 加密核心（浏览器端，零知识） =================
- * 密码库外壳 v2：随机数据密钥 DK 加密整库，主密码与恢复码各自包裹 DK。
- * 修改主密码只需重新包裹 DK，无需改写库密文；恢复码信封不随主密码变化。
- * v1（整库直接由主密码密钥加密）在解锁时自动迁移。
- */
-async function deriveMasterBits(password, salt, iterations){
-  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-  return crypto.subtle.deriveBits({ name:'PBKDF2', salt, iterations, hash:'SHA-256' }, base, 256);
-}
-function masterKeyFromBits(bits){
-  return crypto.subtle.importKey('raw', bits, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']);
-}
-async function encryptJSON(key, obj){
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, key, enc.encode(JSON.stringify(obj)));
-  return { iv: b64(iv), data: b64(ct) };
-}
-async function decryptJSON(key, env){
-  const pt = await crypto.subtle.decrypt({ name:'AES-GCM', iv: unb64(env.iv) }, key, unb64(env.data));
-  return JSON.parse(dec.decode(pt));
-}
-function makeBlobV2(kdf, wpw, extras){
-  const blob = { v:2, kdf, wpw };
-  return extras ? Object.assign(blob, extras) : blob;
-}
-
-/* ================= 恢复码（DK 的第二重包裹） ================= */
-const REC_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // 去掉易混淆的 I / L / O / 0 / 1；31 字符 × 20 位 ≈ 99 bit
-const REC_ITERS = 100000; // 恢复码是 ~99bit 随机串，10 万轮足够，且解锁派生更快
-function genRecCode(){
-  let s = '';
-  for(let i = 0; i < 20; i++) s += REC_ALPHABET[randInt(REC_ALPHABET.length)];
-  return s.match(/.{5}/g).join('-');
-}
-function normalizeRecCode(raw){
-  return String(raw || '').toUpperCase().replace(/[\s\-]/g, '');
-}
-async function deriveRecKey(code, salt, iterations){
-  const base = await crypto.subtle.importKey('raw', enc.encode(code), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name:'PBKDF2', salt, iterations, hash:'SHA-256' }, base, { name:'AES-GCM', length:256 }, false, ['encrypt','decrypt']);
-}
-async function makeRecEnvelope(code, dkBits){
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const key = await deriveRecKey(normalizeRecCode(code), salt, REC_ITERS);
-  return Object.assign({ kdf:{ name:'PBKDF2-SHA256', iterations:REC_ITERS, salt:b64(salt) } }, await encryptJSON(key, { dk: b64(dkBits) }));
-}
-async function unwrapRec(code, rec){
-  const key = await deriveRecKey(normalizeRecCode(code), unb64(rec.kdf.salt), rec.kdf.iterations);
-  return decryptJSON(key, rec); // { dk: ... }
-}
-
-/* ================= TOTP（RFC 6238，SHA-1 / 6 位 / 30 秒） ================= */
-const TOTP_PERIOD = 30, TOTP_DIGITS = 6;
-const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-function normalizeTotpInput(raw){
-  const s = String(raw || '').trim();
-  if(!s) return '';
-  let secret = s;
-  const m = s.match(/^otpauth:\/\/totp\/[^?]*\?(.*)$/i);
-  if(m) secret = new URLSearchParams(m[1]).get('secret') || '';
-  return secret.replace(/[\s\-_]/g, '').toUpperCase().replace(/=+$/, '');
-}
-function decodeBase32(str){
-  const s = String(str || '').toUpperCase();
-  if(!s) return null;
-  let bits = 0, val = 0;
-  const out = [];
-  for(const ch of s){
-    const idx = B32.indexOf(ch);
-    if(idx < 0) return null;
-    val = (val << 5) | idx;
-    bits += 5;
-    if(bits >= 8){ bits -= 8; out.push((val >>> bits) & 0xff); }
-  }
-  return out.length ? new Uint8Array(out) : null;
-}
+/* ================= TOTP 界面驱动（算法实现在 vault-crypto.js） ================= */
 function totpRemain(now = Date.now()){ return TOTP_PERIOD - (Math.floor(now / 1000) % TOTP_PERIOD); }
-async function totpCode(secret, now = Date.now()){
-  try{
-    const keyBytes = decodeBase32(secret);
-    if(!keyBytes) return '';
-    const counter = Math.floor(now / 1000 / TOTP_PERIOD);
-    const buf = new ArrayBuffer(8);
-    const view = new DataView(buf);
-    view.setUint32(0, Math.floor(counter / 0x100000000));
-    view.setUint32(4, counter >>> 0);
-    const key = await crypto.subtle.importKey('raw', keyBytes, { name:'HMAC', hash:'SHA-1' }, false, ['sign']);
-    const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, buf));
-    const off = sig[sig.length - 1] & 0x0f;
-    const bin = ((sig[off] & 0x7f) << 24) | (sig[off + 1] << 16) | (sig[off + 2] << 8) | sig[off + 3];
-    return String(bin % (10 ** TOTP_DIGITS)).padStart(TOTP_DIGITS, '0');
-  }catch{ return ''; }
-}
 function stopTotpTick(){
   if(S.totpTimer){ clearInterval(S.totpTimer); S.totpTimer = null; }
 }
@@ -813,12 +730,6 @@ function passwordStrength(pw){
   if(/^[a-zA-Z]+$/.test(pw)) bits *= .9;
   return bitsToStrength(bits);
 }
-function randInt(max){ // 拒绝采样，保证均匀
-  const lim = Math.floor(0x100000000 / max) * max;
-  const u = new Uint32Array(1);
-  do { crypto.getRandomValues(u); } while(u[0] >= lim);
-  return u[0] % max;
-}
 /* EFF 短词库 v1（1296 词），来源 https://www.eff.org/diceware，CSPRNG 采样每个词约 10.34 bit 熵 */
 const WORDS = 'acid acorn acre acts afar affix aged agent agile aging agony ahead aide aids aim ajar alarm alias alibi alien alike alive aloe aloft aloha alone amend amino ample amuse angel anger angle ankle apple april apron aqua area arena argue arise armed armor army aroma array arson art ashen ashes atlas atom attic audio avert avoid awake award awoke axis bacon badge bagel baggy baked baker balmy banjo barge barn bash basil bask batch bath baton bats blade blank blast blaze bleak blend bless blimp blink bloat blob blog blot blunt blurt blush boast boat body boil bok bolt boned boney bonus bony book booth boots boss botch both boxer breed bribe brick bride brim bring brink brisk broad broil broke brook broom brush buck bud buggy bulge bulk bully bunch bunny bunt bush bust busy buzz cable cache cadet cage cake calm cameo canal candy cane canon cape card cargo carol carry carve case cash cause cedar chain chair chant chaos charm chase cheek cheer chef chess chest chew chief chili chill chip chomp chop chow chuck chump chunk churn chute cider cinch city civic civil clad claim clamp clap clash clasp class claw clay clean clear cleat cleft clerk click cling clink clip cloak clock clone cloth cloud clump coach coast coat cod coil coke cola cold colt coma come comic comma cone cope copy coral cork cost cot couch cough cover cozy craft cramp crane crank crate crave crawl crazy creme crepe crept crib cried crisp crook crop cross crowd crown crumb crush crust cub cult cupid cure curl curry curse curve curvy cushy cut cycle dab dad daily dairy daisy dance dandy darn dart dash data date dawn deaf deal dean debit debt debug decaf decal decay deck decor decoy deed delay denim dense dent depth derby desk dial diary dice dig dill dime dimly diner dingy disco dish disk ditch ditzy dizzy dock dodge doing doll dome donor donut dose dot dove down dowry doze drab drama drank draw dress dried drift drill drive drone droop drove drown drum dry duck duct dude dug duke duo dusk dust duty dwarf dwell eagle early earth easel east eaten eats ebay ebony ebook echo edge eel eject elbow elder elf elk elm elope elude elves email emit empty emu enter entry envoy equal erase error erupt essay etch evade even evict evil evoke exact exit fable faced fact fade fall false fancy fang fax feast feed femur fence fend ferry fetal fetch fever fiber fifth fifty film filth final finch fit five flag flaky flame flap flask fled flick fling flint flip flirt float flock flop floss flyer foam foe fog foil folic folk food fool found fox foyer frail frame fray fresh fried frill frisk from front frost froth frown froze fruit gag gains gala game gap gas gave gear gecko geek gem genre gift gig gills given giver glad glass glide gloss glove glow glue goal going golf gong good gooey goofy gore gown grab grain grant grape graph grasp grass grave gravy gray green greet grew grid grief grill grip grit groom grope growl grub grunt guide gulf gulp gummy guru gush gut guy habit half halo halt happy harm hash hasty hatch hate haven hazel hazy heap heat heave hedge hefty help herbs hers hub hug hula hull human humid hump hung hunk hunt hurry hurt hush hut ice icing icon icy igloo image ion iron islam issue item ivory ivy jab jam jaws jazz jeep jelly jet jiffy job jog jolly jolt jot joy judge juice juicy july jumbo jump junky juror jury keep keg kept kick kilt king kite kitty kiwi knee knelt koala kung ladle lady lair lake lance land lapel large lash lasso last latch late lazy left legal lemon lend lens lent level lever lid life lift lilac lily limb limes line lint lion lip list lived liver lunar lunch lung lurch lure lurk lying lyric mace maker malt mama mango manor many map march mardi marry mash match mate math moan mocha moist mold mom moody mop morse most motor motto mount mouse mousy mouth move movie mower mud mug mulch mule mull mumbo mummy mural muse music musky mute nacho nag nail name nanny nap navy near neat neon nerd nest net next niece ninth nutty oak oasis oat ocean oil old olive omen onion only ooze opal open opera opt otter ouch ounce outer oval oven owl ozone pace pagan pager palm panda panic pants panty paper park party pasta patch path patio payer pecan penny pep perch perky perm pest petal petri petty photo plank plant plaza plead plot plow pluck plug plus poach pod poem poet pogo point poise poker polar polio polka polo pond pony poppy pork poser pouch pound pout power prank press print prior prism prize probe prong proof props prude prune pry pug pull pulp pulse puma punch punk pupil puppy purr purse push putt quack quake query quiet quill quilt quit quota quote rabid race rack radar radio raft rage raid rail rake rally ramp ranch range rank rant rash raven reach react ream rebel recap relax relay relic remix repay repel reply rerun reset rhyme rice rich ride rigid rigor rinse riot ripen rise risk ritzy rival river roast robe robin rock rogue roman romp rope rover royal ruby rug ruin rule runny rush rust rut sadly sage said saint salad salon salsa salt same sandy santa satin sauna saved savor sax say scale scam scan scare scarf scary scoff scold scoop scoot scope score scorn scout scowl scrap scrub scuba scuff sect sedan self send sepia serve set seven shack shade shady shaft shaky sham shape share sharp shed sheep sheet shelf shell shine shiny ship shirt shock shop shore shout shove shown showy shred shrug shun shush shut shy sift silk silly silo sip siren sixth size skate skew skid skier skies skip skirt skit sky slab slack slain slam slang slash slate slaw sled sleek sleep sleet slept slice slick slimy sling slip slit slob slot slug slum slurp slush small smash smell smile smirk smog snack snap snare snarl sneak sneer sniff snore snort snout snowy snub snuff speak speed spend spent spew spied spill spiny spoil spoke spoof spool spoon sport spot spout spray spree spur squad squat squid stack staff stage stain stall stamp stand stank stark start stash state stays steam steep stem step stew stick sting stir stock stole stomp stony stood stool stoop stop storm stout stove straw stray strut stuck stud stuff stump stung stunt suds sugar sulk surf sushi swab swan swarm sway swear sweat sweep swell swept swim swing swipe swirl swoop swore syrup tacky taco tag take tall talon tamer tank taper taps tarot tart task taste tasty taunt thank thaw theft theme thigh thing think thong thorn those throb thud thumb thump thus tiara tidal tidy tiger tile tilt tint tiny trace track trade train trait trap trash tray treat tree trek trend trial tribe trick trio trout truce truck trump trunk try tug tulip tummy turf tusk tutor tutu tux tweak tweet twice twine twins twirl twist uncle uncut undo unify union unit untie upon upper urban used user usher utter value vapor vegan venue verse vest veto vice video view viral virus visa visor vixen vocal voice void volt voter vowel wad wafer wager wages wagon wake walk wand wasp watch water wavy wheat whiff whole whoop wick widen widow width wife wifi wilt wimp wind wing wink wipe wired wiry wise wish wispy wok wolf womb wool woozy word work worry wound woven wrath wreck wrist xerox yahoo yam yard year yeast yelp yield yo-yo yodel yoga yoyo yummy zebra zero zesty zippy zone zoom'.split(' ');
 function passEntropy(st){
@@ -857,7 +768,7 @@ const REQS = [
 
 /* ================= 状态 ================= */
 const S = {
-  key: null, keyBits: null, vault: null, blob: null, meta: null,
+  key: null, keyBits: null, vault: null, blob: null, etag: null, meta: null,
   view: 'list', cat: 'all', tag: null, q: '',
   detail: null, editing: null,
   pendingImport: null,
@@ -867,6 +778,7 @@ const S = {
   tagEditing: null, totpTimer: null,
   recMode: false, histOpen: false,
   recCodeShown: null, recResetPending: false,
+  hibpFile: null, hibpName: '', hibpHits: null, hibpScan: null,
 };
 const HIST_MAX = 10; // 每个账号保留的历史密码上限
 const findEntry = id => S.vault?.entries.find(e => e.id === id);
@@ -876,17 +788,38 @@ async function apiGetVault(){
   const r = await fetch('/api/vault');
   if(r.status === 404) return null;
   if(!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
+  return { blob:await r.json(), etag:r.headers.get('ETag') };
 }
-async function apiPutVault(blob){
-  const r = await fetch('/api/vault', {
-    method:'PUT', headers:{ 'Content-Type':'application/json' },
-    body: JSON.stringify(blob),
-  });
+async function apiPutVault(blob, etag){
+  const headers = { 'Content-Type':'application/json' };
+  if(etag) headers['If-Match'] = etag;
+  const r = await fetch('/api/vault', { method:'PUT', headers, body: JSON.stringify(blob) });
+  if(r.status === 409){
+    const err = new Error('vault changed');
+    err.code = 'CONFLICT';
+    err.etag = r.headers.get('ETag');
+    throw err;
+  }
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  return r.headers.get('ETag');
+}
+async function apiDeleteVault(etag){
+  const headers = etag ? { 'If-Match':etag } : {};
+  const r = await fetch('/api/vault', { method:'DELETE', headers });
+  if(r.status === 409){ const err = new Error('vault changed'); err.code = 'CONFLICT'; throw err; }
   if(!r.ok) throw new Error('HTTP ' + r.status);
 }
-async function apiDeleteVault(){
-  try{ await fetch('/api/vault', { method:'DELETE' }); }catch{}
+async function apiGetSnapshots(){
+  const r = await fetch('/api/snapshots');
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+async function apiRestoreSnapshot(id, etag){
+  const headers = etag ? { 'If-Match':etag } : {};
+  const r = await fetch('/api/snapshot-restore?id=' + encodeURIComponent(id), { method:'PUT', headers });
+  if(r.status === 409){ const err = new Error('vault changed'); err.code = 'CONFLICT'; throw err; }
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  return r.headers.get('ETag');
 }
 
 /* ================= Toast / 弹窗 ================= */
@@ -978,6 +911,10 @@ function showScreen(id){
 function migrateVault(){
   S.vault.settings ??= { autoLock:5 };
   S.vault.categories ??= CATS.map(c => ({ ...c }));
+  S.vault.trash ??= [];
+  S.vault.entries.forEach(e => {
+    e.passwordChangedAt ??= e.updatedAt || e.createdAt || Date.now();
+  });
   ensureTagCatalog();
 }
 function updateLockExtras(){
@@ -996,6 +933,10 @@ function setRecMode(on){
   if(err) err.hidden = true;
   pw?.focus();
 }
+function clearHibpSession(){
+  if(S.hibpScan?.cancel) S.hibpScan.cancel();
+  S.hibpFile = null; S.hibpName = ''; S.hibpHits = null; S.hibpScan = null;
+}
 function lockNow(note){
   try{ navigator.clipboard?.writeText(''); }catch{}
   clearTimeout(S.clipTimer);
@@ -1003,6 +944,7 @@ function lockNow(note){
   S.detail = null; S.editing = null; S.editDirty = false;
   S.catEditing = null; S.tagEditing = null;
   S.histOpen = false; S.recCodeShown = null; S.recResetPending = false;
+  clearHibpSession();
   stopTotpTick();
   closeModal();
   $('#modal-root').hidden = true; $('#modal-root').innerHTML = '';
@@ -1017,6 +959,18 @@ function lockNow(note){
 }
 
 /* ================= 持久化（加密后 PUT 密文文件） ================= */
+const TRASH_RETENTION = 30 * 86400e3;
+function purgeExpiredTrash(now = Date.now()){
+  const before = S.vault?.trash?.length || 0;
+  if(!before) return false;
+  S.vault.trash = S.vault.trash.filter(item => now - item.deletedAt < TRASH_RETENTION);
+  return S.vault.trash.length !== before;
+}
+function handlePersistConflict(){
+  lockNow('密码库已在其他窗口或 CLI 中修改，请重新解锁后再操作');
+  // 刷新内存外壳与 ETag，否则重新解锁后仍以陈旧状态写入，会再次 409
+  apiGetVault().then(got => { if(got){ S.blob = got.blob; S.etag = got.etag; } }).catch(() => {});
+}
 // 串行互斥：并发触发时按调用顺序排队，避免各自读 S.blob 后交错覆盖
 let _persistTail = Promise.resolve();
 function persist(){
@@ -1025,18 +979,45 @@ function persist(){
   _persistTail = new Promise(r => release = r);
   return prev.then(async () => {
     try{
+      purgeExpiredTrash();
       const payload = await encryptJSON(S.key, S.vault); // 整体序列化，新增顶层字段不再需要手工枚举
-      // 只改写库密文；kdf / wpw / rec / hint 等外壳字段保持不变
-      S.blob = Object.assign({}, S.blob, { vault: payload });
-      await apiPutVault(S.blob);
+      const nextBlob = Object.assign({}, S.blob, { vault: payload });
+      const nextEtag = await apiPutVault(nextBlob, S.etag);
+      S.blob = nextBlob;
+      S.etag = nextEtag;
+    } catch(ex) {
+      if(ex.code === 'CONFLICT') handlePersistConflict();
+      throw ex;
     } finally { release(); }
   });
 }
 
 /* ================= 渲染：侧栏 ================= */
+const STALE_MS = 180 * 86400e3;
+function passwordAgeOf(e){
+  return e.passwordChangedAt || e.updatedAt || e.createdAt || 0;
+}
+function isStaleEntry(e, now = Date.now()){
+  return !!(e.password && passwordAgeOf(e) && now - passwordAgeOf(e) >= STALE_MS);
+}
+function moveToTrash(id){
+  const idx = S.vault.entries.findIndex(e => e.id === id);
+  if(idx < 0) return false;
+  const [entry] = S.vault.entries.splice(idx, 1);
+  S.vault.trash.unshift({ id: uuid(), deletedAt: Date.now(), entry });
+  return true;
+}
+function restoreFromTrash(id){
+  const idx = S.vault.trash.findIndex(item => item.id === id);
+  if(idx < 0) return false;
+  const [item] = S.vault.trash.splice(idx, 1);
+  if(S.vault.entries.some(e => e.id === item.entry.id)) item.entry.id = uuid();
+  S.vault.entries.push(item.entry);
+  return true;
+}
 function issueCount(){
   const a = analyze();
-  return a.weak.length + a.reusedCount;
+  return a.weak.length + a.reusedCount + a.stale.length;
 }
 function renderSidebar(){
   const es = S.vault.entries;
@@ -1209,12 +1190,22 @@ function renderGen(container){
 /* ================= 渲染：安全报告 ================= */
 function analyze(){
   const es = S.vault.entries;
+  const now = Date.now();
   const weak = es.filter(e => passwordStrength(e.password).score <= 1 || e.password.length < 10);
   const byPw = {};
   es.forEach(e => { if(!e.password) return; (byPw[e.password] ||= []).push(e); });
   const reusedGroups = Object.values(byPw).filter(a => a.length > 1);
   const reusedCount = reusedGroups.reduce((s,a) => s + a.length, 0);
-  return { weak, reusedGroups, reusedCount };
+  const stale = es.filter(e => isStaleEntry(e, now));
+  const noTotp = es.filter(e => e.password && !e.totpSecret);
+  const reasons = [];
+  let score = 100;
+  if(weak.length){ const n = Math.min(40, weak.length * 8); score -= n; reasons.push(`弱密码 ${weak.length} 个（-${n}）`); }
+  if(reusedCount){ const n = Math.min(30, reusedCount * 6); score -= n; reasons.push(`重复使用 ${reusedCount} 个（-${n}）`); }
+  if(stale.length){ const n = Math.min(20, stale.length * 4); score -= n; reasons.push(`超过 180 天未改密 ${stale.length} 个（-${n}）`); }
+  score = Math.max(0, score);
+  const grade = score >= 90 ? { label:'优秀', color:'var(--green)' } : score >= 70 ? { label:'良好', color:'var(--green)' } : score >= 50 ? { label:'一般', color:'var(--amber)' } : { label:'需改进', color:'var(--red)' };
+  return { weak, reusedGroups, reusedCount, stale, noTotp, score, grade, reasons };
 }
 function renderSec(container){
   const a = analyze();
@@ -1222,18 +1213,43 @@ function renderSec(container){
   const ids = new Set();
   a.weak.forEach(e => ids.add(e.id));
   a.reusedGroups.forEach(g => g.forEach(e => ids.add(e.id)));
+  a.stale.forEach(e => ids.add(e.id));
   const good = total - ids.size;
-  let html = `<div class="stats row-in">
+  const scan = S.hibpScan;
+  let html = `<div class="health-card row-in">
+    <div class="health-score" style="color:${a.grade.color}">${total ? a.score : '—'}</div>
+    <div class="health-meta">
+      <b>${total ? a.grade.label : '暂无评分'}</b>
+      <p>评分只在本机内存中计算：弱密码、重复使用、超过 180 天未改密会扣分；未绑定两步验证仅作为建议，不计入风险角标。</p>
+      ${a.reasons.length ? `<ul>${a.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : (total ? '<p>当前没有需要扣分的风险项。</p>' : '')}
+    </div>
+  </div>
+  <div class="stats row-in">
     <div class="stat"><div class="num" style="color:${a.weak.length?'var(--red)':'var(--green)'}">${a.weak.length}</div><div class="sl">弱密码</div></div>
     <div class="stat"><div class="num" style="color:${a.reusedCount?'var(--amber)':'var(--green)'}">${a.reusedCount}</div><div class="sl">重复使用</div></div>
+    <div class="stat"><div class="num" style="color:${a.stale.length?'var(--amber)':'var(--green)'}">${a.stale.length}</div><div class="sl">老旧密码</div></div>
     <div class="stat"><div class="num" style="color:var(--green)">${good}</div><div class="sl">健康账号</div></div>
+  </div>
+  <div class="hibp-bar row-in">
+    <button class="btn btn-sm" data-action="hibp-pick">${icon('file',13)} ${S.hibpName ? '更换泄露库文件' : '选择本地 HIBP 文件'}</button>
+    ${S.hibpFile && !scan?.running ? `<button class="btn btn-sm btn-primary" data-action="hibp-scan">开始扫描</button>` : ''}
+    ${scan?.running ? `<button class="btn btn-sm" data-action="hibp-cancel">取消扫描</button>` : ''}
+    <span class="sub">${S.hibpName ? '已选择 ' + esc(S.hibpName) + ' · 仅在本机二分查找 SHA-1，不会上传密码或哈希' : '请选择按 SHA-1 升序排列的 hash:count 文本文件。扫描只在当前解锁会话中进行。'}</span>
   </div>`;
+  if(scan){
+    html += `<div class="progress-line"><i style="width:${Math.round((scan.done||0)*100)}%"></i></div>
+      <p class="about" style="margin:-6px 0 16px">${esc(scan.message || (scan.running ? '正在扫描…' : '扫描完成'))}</p>`;
+  }
+  if(S.hibpHits?.length){
+    html += `<div class="sec-h">${icon('warn',15)} 泄露库命中（${S.hibpHits.length}）</div><div class="sec-list">` +
+      S.hibpHits.map((e,i) => rowHTML(e,i)).join('') + `</div>`;
+  }
   if(!total){
-    html += `<div class="empty row-in"><h3>暂无数据</h3><p>添加账号后，这里会展示弱密码与重复密码的检测结果</p></div>`;
-  } else if(ids.size === 0){
+    html += `<div class="empty row-in"><h3>暂无数据</h3><p>添加账号后，这里会展示弱密码、重复密码、老旧密码与本地泄露检测结果</p></div>`;
+  } else if(ids.size === 0 && !S.hibpHits?.length){
     html += `<div class="empty row-in">
       <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto;display:block"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-      <h3>安全状况良好</h3><p>未发现弱密码或重复使用的密码，继续保持</p></div>`;
+      <h3>安全状况良好</h3><p>未发现弱密码、重复使用或超过 180 天未改的密码</p></div>`;
   } else {
     if(a.weak.length){
       html += `<div class="sec-h">${icon('warn',15)} 弱密码（${a.weak.length}）</div><div class="sec-list">` +
@@ -1246,6 +1262,15 @@ function renderSec(container){
           ${g.map((e,i) => rowHTML(e,i)).join('')}
         </div>`).join('');
     }
+    if(a.stale.length){
+      html += `<div class="sec-h">${icon('warn',15)} 超过 180 天未改密（${a.stale.length}）</div><div class="sec-list">` +
+        a.stale.map((e,i) => rowHTML(e,i)).join('') + `</div>`;
+    }
+  }
+  if(a.noTotp.length){
+    html += `<div class="sec-h good">${icon('shield',15)} 建议绑定两步验证（${a.noTotp.length}）</div>
+      <p class="about" style="margin:0 0 10px">未绑定 TOTP 不计入风险评分，仅作兼容性建议。</p>
+      <div class="sec-list">${a.noTotp.map((e,i) => rowHTML(e,i)).join('')}</div>`;
   }
   container.innerHTML = html;
 }
@@ -1280,6 +1305,7 @@ function renderSet(container){
            <button class="icon-btn" data-action="cat-del" data-id="${esc(c.id)}" title="${locked?'「其他」为保留分类，不可删除':'删除分类'}" aria-label="删除" ${dis(locked)}>${icon('trash',15)}</button>`}
     </div>`;
   };
+  queueMicrotask(() => { if(S.view === 'settings') loadSnapList(); });
   container.innerHTML = `<div class="cards settings-cards">
     <section class="card row-in">
       <h3>${icon('file',16)} 数据存储</h3>
@@ -1346,8 +1372,31 @@ function renderSet(container){
       <h3>${icon('download',16)} 备份</h3>
       <div class="set-row"><div class="set-info"><b>导出加密备份</b><span class="sub">备份文件仍受主密码加密，可安全存放在任意位置（内含主密码提示与恢复码信封，不含恢复码本身）</span></div>
         <button class="btn btn-sm" data-action="export">导出</button></div>
-      <div class="set-row"><div class="set-info"><b>导入备份</b><span class="sub">将覆盖当前全部数据，之后需使用该备份的主密码解锁</span></div>
+      <div class="set-row"><div class="set-info"><b>导入备份</b><span class="sub">覆盖前会自动生成一份当前库的密文快照；导入后需使用该备份的主密码解锁</span></div>
         <button class="btn btn-sm btn-warn" data-action="import-click">导入</button></div>
+    </section>
+    <section class="card row-in">
+      <h3>${icon('trash',16)} 回收站</h3>
+      <p class="about">删除的账号会进入加密回收站，保留 30 天。活动列表、搜索与安全报告只读取未删除账号。</p>
+      ${(() => {
+        const items = S.vault.trash || [];
+        if(!items.length) return `<p class="about">回收站是空的。</p>`;
+        return items.map(item => {
+          const e = item.entry || {};
+          return `<div class="set-row">
+            <div class="set-info"><b>${esc(e.title || '未命名账号')}</b><span class="sub">${esc(e.username || '')}${e.username ? ' · ' : ''}删除于 ${fmtRel(item.deletedAt)}</span></div>
+            <button class="btn btn-sm" data-action="trash-restore" data-id="${esc(item.id)}">恢复</button>
+            <button class="btn btn-sm btn-danger" data-action="trash-purge" data-id="${esc(item.id)}">永久删除</button>
+          </div>`;
+        }).join('') + `<div class="cat-add-row"><button class="btn btn-sm btn-danger" data-action="trash-empty">${icon('trash',13)} 清空回收站</button></div>`;
+      })()}
+    </section>
+    <section class="card row-in" id="snap-card">
+      <h3>${icon('clock',16)} 加密快照</h3>
+      <p class="about">每次成功写库前会复制当前 <span class="path">vault.enc</span> 密文，最多保留 ${esc(String(S.snapLimit || 20))} 份。服务端不解密。恢复后需要重新解锁。</p>
+      <div class="set-row"><div class="set-info"><b>刷新快照列表</b><span class="sub">快照保存在本机 data/snap，不进入密码库明文</span></div>
+        <button class="btn btn-sm" data-action="snap-refresh">刷新</button></div>
+      <div id="snap-list"><p class="about">打开设置时自动加载…</p></div>
     </section>
     <section class="card row-in">
       <h3>${icon('lock',16)} 关于</h3>
@@ -1355,7 +1404,7 @@ function renderSet(container){
     </section>
     <section class="card card-danger row-in">
       <h3>${icon('warn',16)} 危险操作</h3>
-      <div class="set-row"><div class="set-info"><b>清除所有数据</b><span class="sub">删除本机密码库文件与全部数据，不可恢复</span></div>
+      <div class="set-row"><div class="set-info"><b>清除所有数据</b><span class="sub">删除本机密码库文件、加密快照与全部数据，不可恢复</span></div>
         <button class="btn btn-sm btn-danger" data-action="wipe">清除</button></div>
     </section>
   </div>`;
@@ -1399,7 +1448,7 @@ function openDetail(id){
         ${(e.tags && e.tags.length) ? e.tags.map(t => `<span class="dtag">#${esc(t)}</span>`).join('') : ''}
       </div>
       <div class="m-meta">
-        <span class="m-time">${icon('clock',13)} 更新于 ${fmtRel(e.updatedAt)}</span>
+        <span class="m-time">${icon('clock',13)} 更新于 ${fmtRel(e.updatedAt)}${e.passwordChangedAt ? ' · 改密于 ' + fmtRel(e.passwordChangedAt) : ''}</span>
         <span class="strength-tag" style="color:${st.color}">强度：${st.label}</span>
       </div>
       ${(e.history && e.history.length) ? `
@@ -1420,7 +1469,7 @@ function openDetail(id){
       </div>` : ''}
     </div>
     <div class="m-foot">
-      <button class="btn btn-danger" data-action="delete">${icon('trash',14)} 删除</button>
+      <button class="btn btn-danger" data-action="delete">${icon('trash',14)} 移至回收站</button>
       <div class="grow"></div>
       <button class="btn btn-primary" data-action="edit">${icon('pencil',14)} 编辑</button>
     </div>
@@ -1644,7 +1693,7 @@ function handleImportFile(input){
     S.pendingImport = vault;
     confirmModal({
       title: '导入备份',
-      message: `将覆盖当前全部数据（现有 ${S.vault.entries.length} 条记录）。导入后需使用该备份的主密码解锁，此操作不可撤销。`,
+      message: `将覆盖当前全部数据（现有 ${S.vault.entries.length} 条记录）。覆盖前会自动生成一份当前库的密文快照。导入后需使用该备份的主密码解锁。`,
       okText: '覆盖并导入', danger: true, action: 'import-confirm',
     });
   }).catch(() => toast('无法读取文件', 'err'));
@@ -1668,9 +1717,135 @@ async function genAndShowRecCode(){
 }
 function enterApp(){
   S.vault.settings ??= { autoLock:5 };
+  if(purgeExpiredTrash()) persist().catch(() => {});
   showScreen('scr-app');
   renderApp();
   S.lastActivity = Date.now();
+}
+function fmtSize(n){
+  if(n < 1024) return n + ' B';
+  if(n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+async function loadSnapList(){
+  const box = document.getElementById('snap-list');
+  if(!box) return;
+  try{
+    const data = await apiGetSnapshots();
+    S.snapLimit = data.limit || S.snapLimit;
+    const snaps = data.snapshots || [];
+    if(!snaps.length){ box.innerHTML = '<p class="about">还没有快照。保存账号或导入备份后会自动生成。</p>'; return; }
+    box.innerHTML = snaps.map(s => `<div class="set-row">
+      <div class="set-info"><b>${esc(new Date(s.createdAt).toLocaleString('zh-CN'))}</b><span class="sub">${esc(s.id)} · ${esc(fmtSize(s.size || 0))}</span></div>
+      <button class="btn btn-sm btn-warn" data-action="snap-restore" data-id="${esc(s.id)}">恢复</button>
+    </div>`).join('');
+  }catch(ex){
+    box.innerHTML = `<p class="about">无法读取快照：${esc(ex.message || ex)}</p>`;
+  }
+}
+function hexSha1(buf){
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('').toUpperCase();
+}
+async function sha1Hex(text){
+  return hexSha1(await crypto.subtle.digest('SHA-1', enc.encode(text)));
+}
+function parseHibpLine(line){
+  const m = String(line || '').trim().match(/^([0-9A-Fa-f]{40}):(\d+)\s*$/);
+  return m ? { hash: m[1].toUpperCase(), count: +m[2] } : null;
+}
+async function readHibpLine(file, offset){
+  const start = Math.max(0, offset);
+  const end = Math.min(file.size, start + 96);
+  if(start >= file.size) return null;
+  const text = await file.slice(start, end).text();
+  const nl = text.indexOf('\n');
+  const raw = nl < 0 ? text : text.slice(0, nl);
+  return { line: raw.replace(/\r$/, ''), next: start + (nl < 0 ? text.length : nl + 1) };
+}
+async function findHibpLineStart(file, pos){
+  if(pos <= 0) return 0;
+  const from = Math.max(0, pos - 80);
+  const text = await file.slice(from, pos).text();
+  const nl = text.lastIndexOf('\n');
+  return nl < 0 ? from : from + nl + 1;
+}
+async function validateHibpFile(file){
+  if(!file.size) throw new Error('文件为空');
+  const first = await readHibpLine(file, 0);
+  if(!parseHibpLine(first.line)) throw new Error('首行不是 SHA-1:次数 格式');
+  const samples = [0];
+  if(file.size > 200) samples.push(Math.floor(file.size * 0.35), Math.floor(file.size * 0.7));
+  let prev = '';
+  for(const pos of samples){
+    const start = await findHibpLineStart(file, pos);
+    const a = await readHibpLine(file, start);
+    const parsed = parseHibpLine(a.line);
+    if(!parsed) throw new Error('文件含有非 SHA-1:次数 行，或未按哈希升序排列');
+    if(prev && parsed.hash < prev) throw new Error('文件未按 SHA-1 升序排列');
+    prev = parsed.hash;
+  }
+}
+async function hibpLookup(file, hash){
+  let lo = 0, hi = file.size;
+  while(lo < hi){
+    const mid = Math.floor((lo + hi) / 2);
+    const start = await findHibpLineStart(file, mid);
+    const rec = await readHibpLine(file, start);
+    if(!rec) break;
+    const parsed = parseHibpLine(rec.line);
+    if(!parsed) throw new Error('泄露库文件格式错误');
+    if(parsed.hash === hash) return parsed.count;
+    if(parsed.hash < hash) lo = rec.next;
+    else hi = start;
+  }
+  return 0;
+}
+function handleHibpFile(input){
+  const f = input.files && input.files[0];
+  input.value = '';
+  if(!f) return;
+  clearHibpSession();
+  S.hibpFile = f;
+  S.hibpName = f.name;
+  validateHibpFile(f).then(() => {
+    toast('已选择本地泄露库，不会上传任何内容');
+    if(S.view === 'security') renderSec($('#view .view-inner'));
+  }).catch(ex => {
+    clearHibpSession();
+    toast(ex.message || '泄露库文件无效', 'err');
+    if(S.view === 'security') renderSec($('#view .view-inner'));
+  });
+}
+async function startHibpScan(){
+  if(!S.hibpFile || S.hibpScan?.running) return;
+  const token = {};
+  let cancelled = false;
+  token.cancel = () => { cancelled = true; S.hibpScan = { running:false, done: S.hibpScan?.done || 0, message:'已取消' }; if(S.view==='security') renderSec($('#view .view-inner')); };
+  S.hibpScan = { running:true, done:0, message:'正在准备扫描…', cancel: token.cancel };
+  if(S.view === 'security') renderSec($('#view .view-inner'));
+  try{
+    const byPw = {};
+    S.vault.entries.forEach(e => { if(e.password) (byPw[e.password] ||= []).push(e); });
+    const passwords = Object.keys(byPw);
+    const hits = [];
+    for(let i = 0; i < passwords.length; i++){
+      if(cancelled) return;
+      const hash = await sha1Hex(passwords[i]);
+      const count = await hibpLookup(S.hibpFile, hash);
+      if(cancelled) return; // 查找期间被取消：不得用 running 态覆盖已取消状态
+      if(count) hits.push(...byPw[passwords[i]]);
+      S.hibpScan = { running:true, done: (i + 1) / passwords.length, message:`已扫描 ${i + 1} / ${passwords.length} 个不重复密码`, cancel: token.cancel };
+      if(S.view === 'security') renderSec($('#view .view-inner'));
+    }
+    if(cancelled) return;
+    S.hibpHits = hits;
+    S.hibpScan = { running:false, done:1, message: hits.length ? `扫描完成，${hits.length} 个账号命中本地泄露库` : '扫描完成，未发现命中' };
+    if(S.view === 'security') renderSec($('#view .view-inner'));
+  }catch(ex){
+    S.hibpScan = { running:false, done:0, message: '扫描失败：' + (ex.message || ex) };
+    toast(ex.message || '扫描失败', 'err');
+    if(S.view === 'security') renderSec($('#view .view-inner'));
+  }
 }
 
 /* ================= 事件：点击委托 ================= */
@@ -2011,16 +2186,75 @@ document.addEventListener('click', async e => {
       break;
     }
     case 'delete':
-      confirmModal({ title:'删除账号', message:'确定要删除该账号记录吗？此操作不可撤销。', okText:'删除', danger:true, action:'del-confirm', dataId:S.detail });
+      confirmModal({ title:'移至回收站', message:'账号将进入加密回收站，30 天内可在设置中恢复。到期后自动永久删除。', okText:'移至回收站', danger:true, action:'del-confirm', dataId:S.detail });
       break;
     case 'del-confirm': {
-      S.vault.entries = S.vault.entries.filter(x => x.id !== id);
+      if(!moveToTrash(id)) break;
       await persist();
       closeModal();
       renderApp();
-      toast('已删除');
+      toast('已移至回收站');
       break;
     }
+    case 'trash-restore': {
+      if(!restoreFromTrash(id)) break;
+      await persist();
+      renderApp();
+      toast('已恢复账号');
+      break;
+    }
+    case 'trash-purge':
+      confirmModal({ title:'永久删除', message:'将从回收站永久删除该账号，不可恢复。', okText:'永久删除', danger:true, action:'trash-purge-confirm', dataId:id });
+      break;
+    case 'trash-purge-confirm': {
+      S.vault.trash = (S.vault.trash || []).filter(item => item.id !== id);
+      await persist();
+      closeModal();
+      renderApp();
+      toast('已永久删除');
+      break;
+    }
+    case 'trash-empty':
+      confirmModal({ title:'清空回收站', message:'将永久删除回收站中的全部账号，不可恢复。', okText:'清空', danger:true, action:'trash-empty-confirm' });
+      break;
+    case 'trash-empty-confirm':
+      S.vault.trash = [];
+      await persist();
+      closeModal();
+      renderApp();
+      toast('回收站已清空');
+      break;
+    case 'snap-refresh':
+      await loadSnapList();
+      break;
+    case 'snap-restore':
+      confirmModal({ title:'恢复加密快照', message:'将用该密文快照覆盖当前密码库，恢复前会再备份当前库。完成后需要重新解锁。', okText:'恢复并锁定', danger:true, action:'snap-restore-confirm', dataId:id });
+      break;
+    case 'snap-restore-confirm': {
+      try{
+        await apiRestoreSnapshot(id, S.etag);
+      }catch(ex){
+        if(ex.code === 'CONFLICT') handlePersistConflict();
+        throw ex;
+      }
+      // 服务端已换库：刷新外壳与 ETag，再锁定要求重新解锁
+      try{
+        const got = await apiGetVault();
+        if(got){ S.blob = got.blob; S.etag = got.etag; }
+      }catch{}
+      closeModal();
+      lockNow('快照已恢复，请重新解锁');
+      break;
+    }
+    case 'hibp-pick':
+      document.getElementById('file-hibp').click();
+      break;
+    case 'hibp-scan':
+      startHibpScan();
+      break;
+    case 'hibp-cancel':
+      if(S.hibpScan?.cancel) S.hibpScan.cancel();
+      break;
     case 'gen-toggle': {
       const box = t.closest('.frow')?.querySelector('.gen-embed');
       if(!box) break;
@@ -2061,8 +2295,14 @@ document.addEventListener('click', async e => {
     case 'import-click': $('#file-import').click(); break;
     case 'import-confirm': {
       if(!S.pendingImport) break;
-      await apiPutVault(S.pendingImport);
-      S.blob = S.pendingImport; // 同步内存外壳，否则解锁仍按旧盐派生密钥
+      try{
+        const etag = await apiPutVault(S.pendingImport, S.etag);
+        S.blob = S.pendingImport; // 同步内存外壳，否则解锁仍按旧盐派生密钥
+        S.etag = etag;
+      }catch(ex){
+        if(ex.code === 'CONFLICT') handlePersistConflict();
+        throw ex;
+      }
       S.pendingImport = null;
       lockNow('备份已导入，请输入该备份的主密码解锁');
       break;
@@ -2129,10 +2369,11 @@ document.addEventListener('click', async e => {
       toast('主密码提示已清除');
       break;
     case 'wipe':
-      confirmModal({ title:'清除所有数据', message:'将删除本机密码库文件（data/vault.enc）与全部数据，且不可恢复。如果没有导出过备份，所有账号记录将永久丢失。', okText:'确认清除', danger:true, action:'wipe-confirm' });
+      confirmModal({ title:'清除所有数据', message:'将删除本机密码库文件（data/vault.enc）、全部加密快照与全部数据，且不可恢复。如果没有导出过备份，所有账号记录将永久丢失。', okText:'确认清除', danger:true, action:'wipe-confirm' });
       break;
     case 'wipe-confirm':
-      await apiDeleteVault();
+      try{ await apiDeleteVault(S.etag); }
+      catch(ex){ toast(ex.code === 'CONFLICT' ? '密码库已被其他窗口修改，请刷新页面后重试' : '清除失败：' + (ex.message || ex), 'err'); break; }
       location.reload();
       break;
   }
@@ -2162,7 +2403,7 @@ document.addEventListener('submit', async e => {
     S.blob = makeBlobV2({ name:'PBKDF2-SHA256', iterations:KDF_ITERS, salt:b64(salt) }, await encryptJSON(kpw, { dk: b64(dkBits) }), extras);
     S.key = await masterKeyFromBits(dkBits);
     S.keyBits = dkBits;
-    S.vault = { entries:[], settings:{ autoLock:5 }, meta:{ createdAt:Date.now() }, categories: CATS.map(c => ({ ...c })), tags:[] };
+    S.vault = { entries:[], settings:{ autoLock:5 }, meta:{ createdAt:Date.now() }, categories: CATS.map(c => ({ ...c })), tags:[], trash:[] };
     await persist();
     busy(btn, false);
     enterApp();
@@ -2236,11 +2477,13 @@ document.addEventListener('submit', async e => {
     const now = Date.now();
     const old = S.editing ? findEntry(S.editing) : null;
     const tags = [...form.querySelectorAll('#tag-editor .tag-chip')].map(el => el.dataset.tag);
+    const password = String(fd.get('password') || '');
+    const passwordChanged = !!(old && old.password && password && password !== old.password);
     const entry = {
       id: old ? old.id : uuid(),
       title,
       username: String(fd.get('username') || '').trim(),
-      password: String(fd.get('password') || ''),
+      password,
       url: String(fd.get('url') || '').trim(),
       notes: String(fd.get('notes') || '').trim(),
       category: fd.get('category') || 'other',
@@ -2249,13 +2492,17 @@ document.addEventListener('submit', async e => {
       totpSecret,
       createdAt: old ? old.createdAt : now,
       updatedAt: now,
+      passwordChangedAt: old
+        ? (passwordChanged ? now : (old.passwordChangedAt || old.updatedAt || old.createdAt || now))
+        : now,
     };
     if(old){
       // 密码变更时保留旧密码到历史（新密码留空视为清除，不记录）
-      if(old.password && entry.password && entry.password !== old.password){
+      if(passwordChanged){
         old.history ??= [];
-        old.history.unshift({ password: old.password, changedAt: old.updatedAt || old.createdAt || now });
+        old.history.unshift({ password: old.password, changedAt: old.passwordChangedAt || old.updatedAt || old.createdAt || now });
         if(old.history.length > HIST_MAX) old.history.length = HIST_MAX;
+        S.hibpHits = null;
       }
       Object.assign(old, entry);
     }
@@ -2287,7 +2534,8 @@ document.addEventListener('submit', async e => {
     if(confirmText !== '重置' && confirmText !== 'reset'){ toast('请输入「重置」以确认', 'warn'); input?.focus(); return; }
     const btn = form.querySelector('[type=submit]');
     busy(btn, true, '重置中…');
-    await apiDeleteVault();
+    try{ await apiDeleteVault(S.etag); }
+    catch(ex){ busy(btn, false); toast(ex.code === 'CONFLICT' ? '密码库已被其他窗口修改，请刷新页面后重试' : '重置失败：' + (ex.message || ex), 'err'); return; }
     location.reload();
   }
   else if(form.dataset.form === 'chgpass'){
@@ -2370,6 +2618,7 @@ document.addEventListener('change', e => {
   if(t.matches('[data-gen-ctrl]') && t.type !== 'range') updateGen(t);
   if(t.id === 'tag-input' && t.value.trim()) addTagFromInput();
   if(t.id === 'file-import') handleImportFile(t);
+  if(t.id === 'file-hibp') handleHibpFile(t);
 });
 function updateGen(t){
   const box = t.closest('.gen');
@@ -2545,20 +2794,21 @@ setInterval(() => {
   // 版本号唯一来源是服务端 /api/meta，前端不硬编码
   const bv = document.querySelector('.bver');
   if(bv && S.meta?.version) bv.textContent = 'v' + S.meta.version;
-  let blob = null;
-  try{ blob = await apiGetVault(); }
+  let got = null;
+  try{ got = await apiGetVault(); }
   catch(ex){
     console.error(ex);
     document.body.innerHTML = `<div style="display:grid;place-items:center;height:100vh;color:#DC2626;font-family:sans-serif;text-align:center;padding:20px">
       <div><h2>无法读取密码库</h2><p style="color:#5D6B85;margin-top:8px">本机密文文件存在但读取失败，未进入创建流程以免覆盖现有数据。请检查 data/vault.enc 权限后刷新。</p></div></div>`;
     return;
   }
-  if(!blob){
+  if(!got){
     showScreen('scr-setup');
     setTimeout(() => $('#su-pw').focus(), 80);
     return;
   }
-  S.blob = blob;
+  S.blob = got.blob;
+  S.etag = got.etag;
   updateLockExtras();
   showScreen('scr-lock');
   setTimeout(() => $('#lk-pw').focus(), 80);

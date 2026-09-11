@@ -6,14 +6,18 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const crypto = require('crypto');
+const { spawn } = require('child_process');
 
 const PORT = 8420;
 const HOST = '127.0.0.1'; // 只监听本机，局域网不可访问
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
 const VAULT_FILE = path.join(DATA_DIR, 'vault.enc');
+const SNAP_DIR = path.join(DATA_DIR, 'snap');
+const SNAP_LIMIT = 20;
 const PUBLIC_DIR = path.join(ROOT, 'public');
+const SNAP_ID_RE = /^\d{8}T\d{9}Z-[a-f0-9]{8}$/;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -25,9 +29,9 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
 };
 
-function sendJSON(res, code, obj) {
+function sendJSON(res, code, obj, headers = {}) {
   const buf = Buffer.from(JSON.stringify(obj));
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
   res.end(buf);
 }
 
@@ -68,6 +72,123 @@ function isValidVault(obj) {
   return typeof obj.iv === 'string' && typeof obj.data === 'string';
 }
 
+function etagFor(raw) {
+  return '"' + crypto.createHash('sha256').update(raw).digest('hex') + '"';
+}
+
+function fsyncDir(dir) {
+  try {
+    const fd = fs.openSync(dir, 'r');
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  } catch {}
+}
+
+function writeAtomic(file, raw) {
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  const fd = fs.openSync(tmp, 'w');
+  try {
+    fs.writeSync(fd, raw);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, file);
+  fsyncDir(dir);
+}
+
+function readExistingVault() {
+  try {
+    const raw = fs.readFileSync(VAULT_FILE, 'utf8');
+    const obj = JSON.parse(raw);
+    if (!isValidVault(obj)) throw new Error('invalid vault format');
+    return { raw, obj, etag: etagFor(raw) };
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    const e = new Error('vault read failed');
+    e.statusCode = 500;
+    throw e;
+  }
+}
+
+function snapshotId() {
+  return new Date().toISOString().replace(/[-:.]/g, '') + '-' + crypto.randomBytes(4).toString('hex');
+}
+
+// 快照文件名双重白名单：id 必须匹配严格格式，且「id.enc」必须真实出现在
+// readdir 的目录清单中（清单条目不可能含路径分隔符），因此不存在路径穿越可能
+function snapshotFile(id) {
+  if (typeof id !== 'string' || !SNAP_ID_RE.test(id)) return null;
+  const name = `${id}.enc`;
+  let names;
+  try {
+    names = fs.readdirSync(SNAP_DIR);
+  } catch {
+    return null;
+  }
+  return names.includes(name) ? path.join(SNAP_DIR, name) : null;
+}
+
+function listSnapshots() {
+  try {
+    return fs.readdirSync(SNAP_DIR, { withFileTypes: true })
+      .filter(d => d.isFile() && d.name.endsWith('.enc'))
+      .map(d => {
+        const id = d.name.slice(0, -4);
+        if (!SNAP_ID_RE.test(id)) return null;
+        const stat = fs.statSync(path.join(SNAP_DIR, d.name));
+        return { id, createdAt: stat.mtimeMs, size: stat.size };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
+}
+
+function pruneSnapshots() {
+  for (const snap of listSnapshots().slice(SNAP_LIMIT)) {
+    fs.unlinkSync(snapshotFile(snap.id));
+  }
+}
+
+function snapshotCurrent(current) {
+  if (!current) return null;
+  const file = snapshotFile(snapshotId());
+  writeAtomic(file, current.raw);
+  pruneSnapshots();
+  return path.basename(file, '.enc');
+}
+
+function requireMatch(req, current) {
+  const requested = req.headers['if-match'];
+  return !requested || !!current && String(requested) === current.etag;
+}
+
+function conflict(res, current) {
+  return sendJSON(res, 409, { error: 'vault changed' }, current ? { ETag: current.etag } : {});
+}
+
+function clearVaultAndSnapshots() {
+  try { fs.unlinkSync(VAULT_FILE); } catch (err) { if (err.code !== 'ENOENT') throw err; }
+  fs.rmSync(SNAP_DIR, { recursive: true, force: true });
+  fsyncDir(DATA_DIR);
+}
+
+function restoreSnapshot(snapshot, current) {
+  const file = snapshotFile(snapshot.id);
+  if (!file) return null;
+  const raw = fs.readFileSync(file, 'utf8');
+  let obj;
+  try { obj = JSON.parse(raw); } catch { return null; }
+  if (!isValidVault(obj)) return null;
+  snapshotCurrent(current);
+  writeAtomic(VAULT_FILE, raw);
+  return raw;
+}
+
 const server = http.createServer(async (req, res) => {
   // 防 DNS rebinding：Host 必须是本机
   const host = (req.headers.host || '').split(':')[0];
@@ -80,41 +201,47 @@ const server = http.createServer(async (req, res) => {
     } catch {
       return sendJSON(res, 400, { error: 'bad request' });
     }
+    /* ---------- 密文快照 API ---------- */
+    if (url.pathname === '/api/snapshots') {
+      if (req.method === 'GET') return sendJSON(res, 200, { snapshots: listSnapshots(), limit: SNAP_LIMIT });
+      return sendJSON(res, 405, { error: 'method not allowed' });
+    }
+
+    if (url.pathname === '/api/snapshot-restore') {
+      if (req.method !== 'PUT') return sendJSON(res, 405, { error: 'method not allowed' });
+      const snapshot = listSnapshots().find(item => item.id === url.searchParams.get('id'));
+      const current = readExistingVault();
+      if (!snapshot || !current) return sendJSON(res, 404, { error: 'snapshot not found' });
+      if (!requireMatch(req, current)) return conflict(res, current);
+      const raw = restoreSnapshot(snapshot, current);
+      if (!raw) return sendJSON(res, 500, { error: 'snapshot restore failed' });
+      return sendJSON(res, 200, { ok: true }, { ETag: etagFor(raw) });
+    }
+
     /* ---------- 密文文件 API ---------- */
     if (url.pathname === '/api/vault') {
       if (req.method === 'GET') {
-        try {
-          const raw = fs.readFileSync(VAULT_FILE, 'utf8');
-          return sendJSON(res, 200, JSON.parse(raw));
-        } catch (err) {
-          if (err.code === 'ENOENT') return sendJSON(res, 404, { exists: false });
-          return sendJSON(res, 500, { error: 'vault read failed' });
-        }
+        const current = readExistingVault();
+        if (!current) return sendJSON(res, 404, { exists: false });
+        return sendJSON(res, 200, current.obj, { ETag: current.etag });
       }
       if (req.method === 'PUT') {
         const body = await readBody(req, 10 * 1024 * 1024);
         let obj;
         try { obj = JSON.parse(body); } catch { return sendJSON(res, 400, { error: 'invalid json' }); }
         if (!isValidVault(obj)) return sendJSON(res, 400, { error: 'invalid vault format' });
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-        // 原子写入：先写临时文件并 fsync，再重命名，避免进程中断或掉电留下半截文件
-        const tmp = VAULT_FILE + '.tmp';
-        const fd = fs.openSync(tmp, 'w');
-        try {
-          fs.writeSync(fd, JSON.stringify(obj));
-          fs.fsyncSync(fd);
-        } finally {
-          fs.closeSync(fd);
-        }
-        fs.renameSync(tmp, VAULT_FILE);
-        try {
-          const dirFd = fs.openSync(DATA_DIR, 'r');
-          try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
-        } catch {}
-        return sendJSON(res, 200, { ok: true });
+        const current = readExistingVault();
+        if (!requireMatch(req, current)) return conflict(res, current);
+        const raw = JSON.stringify(obj);
+        // 覆盖前先写入原始密文快照；快照失败时当前库不会被覆盖。
+        snapshotCurrent(current);
+        writeAtomic(VAULT_FILE, raw);
+        return sendJSON(res, 200, { ok: true }, { ETag: etagFor(raw) });
       }
       if (req.method === 'DELETE') {
-        try { fs.unlinkSync(VAULT_FILE); } catch {}
+        const current = readExistingVault();
+        if (current && !requireMatch(req, current)) return conflict(res, current);
+        clearVaultAndSnapshots();
         return sendJSON(res, 200, { ok: true });
       }
       return sendJSON(res, 405, { error: 'method not allowed' });
@@ -124,7 +251,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/meta') {
       return sendJSON(res, 200, {
         app: 'MemKey',
-        version: '1.4.2',
+        version: '1.5.0',
         vaultFile: VAULT_FILE,
         url: `http://localhost:${PORT}`,
       });
@@ -150,10 +277,17 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+function openInBrowser(url) {
+  // start 是 cmd 内建命令；用参数数组 + 无 shell 方式调用，URL 由常量构成，不经过 shell 解析
+  try {
+    spawn('cmd', ['/c', 'start', '', url], { shell: false, stdio: 'ignore', detached: false }).unref();
+  } catch {}
+}
+
 server.on('error', err => {
   if (err.code === 'EADDRINUSE') {
     console.log(`[MemKey] 端口 ${PORT} 已被占用，服务可能已在运行，直接打开浏览器…`);
-    exec(`start http://localhost:${PORT}`);
+    openInBrowser(`http://localhost:${PORT}`);
     process.exit(0);
   }
   console.error('[MemKey] 启动失败：', err.message);
@@ -167,5 +301,5 @@ server.listen(PORT, HOST, () => {
   console.log(`  数据文件：${VAULT_FILE}`);
   console.log('  停止服务：关闭本窗口或按 Ctrl+C');
   console.log('========================================');
-  if (process.argv.includes('--open')) exec(`start http://localhost:${PORT}`);
+  if (process.argv.includes('--open')) openInBrowser(`http://localhost:${PORT}`);
 });
